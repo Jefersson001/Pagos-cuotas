@@ -1,0 +1,69 @@
+# Configuracion privada y credenciales locales
+.env
+.env.*
+!.env.example
+/auth.json
+/.aws/
+/*.pem
+/*.key
+
+# Dependencias y caches descargables
+/vendor/
+/node_modules/
+/.composer-cache/
+/.npm-cache/
+/.cache/
+
+# Archivos generados por Laravel y Vite
+/public/build/
+/public/fonts-manifest.dev.json
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail/
+
+# Resultados de pruebas (el codigo de tests/ se conserva)
+.phpunit.result.cache
+/.phpunit.cache/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/coverage/
+/.coverage/
+/coverage.xml
+
+# Respaldos y bases de datos locales
+/backups/
+/database/*.sqlite*
+/database/*.sql
+/database/*.sql.gz
+/database/*.dump
+
+# Documentacion adicional y configuracion de asistentes locales
+/docs/
+/AGENTS.md
+/CLAUDE.md
+/boost.json
+/.agents/
+/.ai/
+/.claude/
+/.codex/
+/.cursor/
+
+# Archivos del editor y del sistema operativo
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.phpactor.json
+/.idea
+/.nova
+/.vscode
+/.zed
+_ide_helper.php
+Homestead.json
+Homestead.yaml

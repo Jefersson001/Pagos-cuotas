@@ -1,0 +1,42 @@
+import {test,expect} from '@playwright/test';
+import {execFileSync} from 'node:child_process';
+let credentials;
+test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php','dashboard'],{env:{...process.env,DB_CONNECTION:'mysql',DB_DATABASE:'ventas_programada_browser'},encoding:'utf8'}));});
+
+test('monthly dates in sales and payments update live and preserve custom ranges',async({page})=>{
+ test.setTimeout(90000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/login');await page.locator('[name=email]').fill(credentials.email);await page.locator('[name=password]').fill(credentials.password);await page.getByRole('button',{name:'Ingresar al panel'}).click();await page.waitForURL(url=>!url.pathname.endsWith('/login'));
+ for(const path of ['/orders','/receipts']){
+  await page.goto(path);const form=page.locator('[data-live-dates]'),from=page.getByLabel('Desde',{exact:true}),to=page.getByLabel('Hasta',{exact:true});
+  const today=await to.inputValue(),first=today.slice(0,8)+'01';await expect(from).toHaveValue(first);await expect(form.locator('[name=date_mode]')).toHaveValue('month');
+  const before=await page.locator('tbody tr').count();expect(before).toBeGreaterThan(1);await page.evaluate(()=>window.dateFilterMarker=true);
+  await from.fill('2000-01-01');await to.fill('2000-01-01');await page.locator('h1').click();await expect(form).not.toHaveAttribute('aria-busy','true',{timeout:20000});await expect(page.locator('tbody .empty')).toBeVisible();await expect(form.locator('[name=date_mode]')).toHaveValue('custom');expect(await page.evaluate(()=>window.dateFilterMarker)).toBe(true);
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(from).toHaveValue('2000-01-01');await expect(to).toHaveValue('2000-01-01');
+  await to.fill(today);await from.fill(first);await page.locator('h1').click();await expect(form).not.toHaveAttribute('aria-busy','true',{timeout:20000});await expect(page.locator('tbody tr')).toHaveCount(before);await expect(form.locator('[name=date_mode]')).toHaveValue('month');
+  await page.evaluate(()=>{const f=document.querySelector('[data-live-dates]');f.elements.from.value='2000-01-01';f.elements.to.value='2000-01-01';window.dispatchEvent(new Event('focus'));});await expect(from).toHaveValue(first);await expect(to).toHaveValue(today);await expect(form).not.toHaveAttribute('aria-busy','true',{timeout:20000});
+ }
+ expect(errors).toEqual([]);
+});
+test('resumen de cartera, filtros en vivo y vista móvil',async({page})=>{
+ test.setTimeout(90000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/login');await page.locator('[name=email]').fill(credentials.email);await page.locator('[name=password]').fill(credentials.password);await page.getByRole('button',{name:'Ingresar al panel'}).click();await expect(page.getByRole('heading',{name:'Resumen general',exact:true})).toBeVisible();
+ const sidebar=page.locator('.sidebar');await expect.poll(async()=>{const b=await sidebar.boundingBox();return Math.round(b.x+b.width);}).toBeLessThanOrEqual(20);
+ await page.mouse.move(8,200);await expect.poll(async()=>Math.round((await sidebar.boundingBox()).x)).toBe(0);
+ await page.getByRole('button',{name:'Configuración',exact:true}).click();const config=page.getByRole('navigation',{name:'Configuración',exact:true});await expect(config.getByRole('link',{name:'Productos',exact:true})).toBeVisible();await expect(config.getByRole('link',{name:'Clientes',exact:true})).toBeVisible();await expect(page.locator('.workspace')).toHaveCount(0);
+ await page.mouse.move(700,100);await expect.poll(async()=>{const b=await sidebar.boundingBox();return Math.round(b.x+b.width);}).toBeLessThanOrEqual(20);
+ expect(await page.locator('[data-client-accounts]').evaluate(el=>el.nextElementSibling.querySelector('h2')?.textContent.startsWith('Próximos vencimientos'))).toBe(true);
+ const stat=(name)=>page.locator('.stat-card').filter({has:page.getByText(name,{exact:true})}).locator('strong');
+ await expect(stat('Clientes')).toHaveText('26');await expect(stat('Productos')).toHaveText('3');await expect(stat('Saldo por cobrar')).toHaveText('$2,400.00');await expect(stat('Saldo a favor')).toHaveText('$370.00');await expect(stat('Total cobrado')).toHaveText('$770.00');
+ const rows=page.locator('[data-client-accounts] tbody tr');await expect(rows.first()).toContainText('Cliente con vencido');await expect(rows.last()).toContainText('Sin movimientos');await expect(page.locator('[data-chart]')).toHaveCount(4);
+ await page.screenshot({path:'test-results/dashboard-portfolio-desktop.png',fullPage:true});await page.evaluate(()=>window.dashboardAccountMarker=true);
+ const from=page.getByLabel('Desde',{exact:true}),to=page.getByLabel('Hasta',{exact:true});const today=await from.inputValue();await expect(to).toHaveValue(today);await expect(page.locator('[name=date_mode]')).toHaveValue('today');await expect(page.locator('input[name=q]')).toHaveCount(0);await expect(page.locator('select[name=account_state]')).toHaveCount(0);
+ await from.fill('2000-01-01');await to.fill('2000-01-01');await expect(stat('Total cobrado')).toHaveText('$0.00');await expect(stat('Saldo por cobrar')).toHaveText('$2,400.00');await expect(stat('Saldo a favor')).toHaveText('$370.00');await expect(page.locator('[name=date_mode]')).toHaveValue('custom');expect(await page.evaluate(()=>window.dashboardAccountMarker)).toBe(true);
+ await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(from).toHaveValue('2000-01-01');await expect(to).toHaveValue('2000-01-01');
+ await to.fill(today);await from.fill(today);await expect(stat('Total cobrado')).toHaveText('$770.00');await expect(page.locator('[name=date_mode]')).toHaveValue('today');
+ await page.getByRole('heading',{name:'Resumen general',exact:true}).click();await expect(page.locator('[data-dashboard-dates]')).not.toHaveAttribute('aria-busy','true');await page.evaluate(()=>{const form=document.querySelector('[data-dashboard-dates]');form.elements.date_mode.value='today';form.elements.from.value='2000-01-01';form.elements.to.value='2000-01-01';window.dispatchEvent(new Event('focus'));});await expect(from).toHaveValue(today);await expect(to).toHaveValue(today);
+ await page.locator('#dealership-context').selectOption(String(credentials.principal));await expect(page.locator('[data-dashboard-dates]')).not.toHaveAttribute('aria-busy','true',{timeout:20000});await expect(stat('Clientes')).toHaveText('25');await expect(stat('Productos')).toHaveText('2');await expect(stat('Saldo a favor')).toHaveText('$350.00');await expect(rows.filter({hasText:'Cliente concesionario externo'})).toHaveCount(0);
+ await page.locator('.pagination a[rel=next]').last().click();await expect(page).toHaveURL(/[?&]page=2/);await expect(rows.first()).toContainText('Sin movimientos');expect(await page.evaluate(()=>window.dashboardAccountMarker)).toBe(true);await expect(from).toHaveValue(today);await expect(to).toHaveValue(today);
+ await page.locator('.pagination a[rel=prev]').last().click();await expect(rows.first()).toContainText('Cliente con vencido');await expect(rows.filter({hasText:'Cliente con saldo por aplicar'}).getByRole('link',{name:'Aplicar saldo',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Cambiar tema'}).click();await expect(page.locator('.stat-card').first()).toHaveCSS('background-color','rgb(26, 26, 26)');await page.screenshot({path:'test-results/dashboard-portfolio-dark.png',fullPage:true});await page.getByRole('button',{name:'Cambiar tema'}).click();
+ await page.setViewportSize({width:390,height:844});await expect(page.locator('.sidebar')).not.toBeInViewport();await page.getByRole('button',{name:'Abrir menú',exact:true}).click();await expect(page.getByRole('navigation',{name:'Configuración',exact:true}).getByRole('link',{name:'Clientes',exact:true})).toBeVisible();await page.getByRole('button',{name:'Cerrar menú',exact:true}).click();await expect(page.locator('.sidebar')).not.toBeInViewport();await expect(page.locator('.account-mobile-balances').first()).toBeVisible();await expect(page.locator('.account-mobile-balances').first()).toContainText('$1,000.00');await expect(page.locator('.account-mobile-balances').first()).toContainText('$0.00');await page.screenshot({path:'test-results/dashboard-portfolio-mobile.png',fullPage:true});expect(errors).toEqual([]);
+});

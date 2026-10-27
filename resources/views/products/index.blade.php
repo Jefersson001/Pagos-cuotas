@@ -1,0 +1,8 @@
+@extends('layouts.app')
+@section('title','Productos')
+@section('subtitle','Catálogo de productos, precios e iniciales por concesionario.')
+@section('actions')@can('create',\App\Models\Product::class)<a class="btn primary" href="{{ route('products.create') }}"><i data-lucide="plus"></i>Nuevo producto</a>@endcan @endsection
+@section('content')
+<section class="card table-card" data-live-panel><form class="filters live-filters" data-live-filters>@include('components.dealership-filter')<div class="search"><i data-lucide="search"></i><input name="q" value="{{ request('q') }}" placeholder="Consultar productos por nombre" aria-label="Consultar productos"></div><select name="active" aria-label="Estado del producto"><option value="">Todos los estados</option><option value="1" @selected(request('active')==='1')>Activos</option><option value="0" @selected(request('active')==='0')>Inactivos</option></select></form>
+<div class="table-scroll"><table><thead><tr><th>Producto</th><th>Concesionario</th><th>Precio</th><th>Inicial</th><th>Estado</th><th></th></tr></thead><tbody>@forelse($products as $product)<tr><td><strong>{{ $product->name }}</strong></td><td>{{ $product->dealership->name }}</td><td>${{ number_format($product->price,2) }}</td><td>${{ number_format($product->initial_amount,2) }}</td><td><span class="status gray">{{ $product->active?'Activo':'Inactivo' }}</span></td><td>@can('update',$product)<a class="text-link" href="{{ route('products.edit',$product) }}">Editar</a>@endcan</td></tr>@empty<tr><td colspan="6" class="empty">No hay productos que coincidan. Registra productos para seleccionarlos en una venta.</td></tr>@endforelse</tbody></table></div><div class="pagination">{{ $products->links() }}</div></section>
+@endsection
