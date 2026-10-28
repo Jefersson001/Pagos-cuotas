@@ -8,7 +8,9 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\Money;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -41,19 +43,58 @@ class ProductTest extends TestCase
     {
         $admin = $this->user();
         $dealer = Dealership::firstOrFail();
-        $v = ['name' => 'Moto Bera', 'price' => '1000.00', 'initial_amount' => '200.00', 'active' => 1, 'dealership_id' => $dealer->id, 'user_id' => 999999];
+        $v = ['brand' => 'Moto', 'model' => 'Bera', 'transmission' => 'sincronico', 'year' => 2026, 'color' => 'rojo', 'cash_price' => '800.00', 'price' => '1000.00', 'installment_count' => 12, 'initial_amount' => '200.00', 'active' => 1, 'dealership_id' => $dealer->id, 'user_id' => 999999, 'name' => 'Nombre manipulado'];
         $this->get(route('products.index'))->assertRedirect(route('login'));
-        $this->actingAs($admin)->get(route('products.create'))->assertOk();
+        $this->actingAs($admin)->get(route('products.create'))->assertOk()->assertViewHas('product', fn ($product) => $product->installment_count === 5)->assertSee('Previsualización del plan de pagos');
         $this->post(route('products.store'), array_merge($v, ['initial_amount' => '1000.01']))->assertSessionHasErrors('initial_amount');
         $this->post(route('products.store'), $v)->assertSessionHasNoErrors();
         $product = Product::firstOrFail();
         $this->assertSame($admin->id, $product->user_id);
-        $this->get(route('products.edit', $product))->assertOk()->assertSee('Moto Bera');
-        $this->put(route('products.update', $product), array_merge($v, ['name' => 'Moto Bera nueva', 'initial_amount' => '150.00']))->assertSessionHasNoErrors();
+        $this->assertSame('Moto Bera 2026 Sincrónico Rojo', $product->name);
+        $this->assertSame('800.00', $product->cash_price);
+        $this->assertSame(12, $product->installment_count);
+        $this->get(route('products.edit', $product))->assertOk()->assertSee('value="Bera"', false)->assertDontSee('Nombre del producto')->assertSee('type="radio"', false);
+        $this->put(route('products.update', $product), array_merge($v, ['model' => 'Bera nueva', 'initial_amount' => '150.00']))->assertSessionHasNoErrors();
         $this->assertSame('150.00', $product->fresh()->initial_amount);
         $this->get(route('products.index', ['q' => 'nueva']))->assertOk()->assertViewHas('products', fn ($p) => $p->total() === 1);
         $this->delete(route('products.destroy', $product))->assertSessionHasNoErrors();
         $this->assertModelMissing($product);
+    }
+
+    public function test_vehicle_details_reject_invalid_transmission_color_year_prices_and_installment_count(): void
+    {
+        $this->travelTo(now()->setDate(2026, 10, 28));
+        $this->actingAs($this->user());
+        $v = ['brand' => 'Bera', 'model' => 'BR 200', 'transmission' => 'automatico', 'year' => 2026, 'color' => 'negro', 'cash_price' => '800.00', 'price' => '1000.00', 'installment_count' => 12, 'initial_amount' => '200.00', 'active' => 1, 'dealership_id' => Dealership::first()->id];
+        foreach (['brand' => '', 'model' => '', 'transmission' => 'otro', 'year' => 2028, 'color' => 'azul', 'cash_price' => '0', 'price' => '0', 'installment_count' => 0] as $field => $value) {
+            $error = $field === 'price' ? 'initial_amount' : $field;
+            $this->post(route('products.store'), array_merge($v, [$field => $value]))->assertSessionHasErrors($error);
+        }
+        $this->post(route('products.store'), array_merge($v, ['installment_count' => 121]))->assertSessionHasErrors('installment_count');
+        $this->assertDatabaseCount('products', 0);
+        $this->post(route('products.store'), $v)->assertSessionHasNoErrors();
+        $product = Product::firstOrFail();
+        $this->assertSame('Bera BR 200 2026 Automático Negro', $product->name);
+        $client = $this->client($this->user('user', $product->dealership_id));
+        $this->get(route('products.options', ['client_id' => $client->id, 'q' => 'Negro']))->assertOk()->assertJsonPath('products.0.name', $product->name)->assertJsonPath('products.0.price', '1000.00');
+        $this->post(route('orders.store'), $this->data($client, [['product_id' => $product->id, 'quantity' => 1]]))->assertSessionHasNoErrors();
+        $this->assertSame('1000.00', Order::firstOrFail()->total);
+        $this->assertSame('200.00', Order::firstOrFail()->initial_amount);
+    }
+
+    public function test_vehicle_migration_preserves_legacy_product_names_and_prices(): void
+    {
+        $product = Product::factory()->create(['name' => 'Producto anterior', 'price' => '1250.50', 'initial_amount' => '200.00']);
+        $migration = require database_path('migrations/2026_10_28_152724_add_vehicle_details_to_products.php');
+        $migration->down();
+        $migration->up();
+        $saved = DB::table('products')->find($product->id);
+        $this->assertSame('Producto anterior', $saved->name);
+        $this->assertSame('Producto anterior', $saved->model);
+        $this->assertSame(125050, Money::cents($saved->cash_price));
+        $this->assertSame(125050, Money::cents($saved->price));
+        $this->assertNull($saved->brand);
+        $this->assertNull($saved->installment_count);
     }
 
     public function test_advisors_share_their_dealership_catalog_but_cannot_change_it_or_access_another_dealer(): void

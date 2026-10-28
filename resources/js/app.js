@@ -3,6 +3,17 @@ import Chart from 'chart.js/auto';
 import { createIcons, Layers, LayoutDashboard, ShoppingBag, UsersRound, CalendarClock, ChartNoAxesCombined, UserCog, ShieldCheck, Settings2, LogOut, Menu, SunMoon, CircleCheck, ArrowRight, Plus, Sparkles, ArrowUpRight, Wallet, BadgeDollarSign, AlarmClock, ChartPie, ChevronRight, CalendarCheck, Search, UserPlus, Check, Pencil, UserRound, Printer, MessageCircle, Download } from 'lucide';
 const icons={Layers,LayoutDashboard,ShoppingBag,UsersRound,CalendarClock,ChartNoAxesCombined,UserCog,ShieldCheck,Settings2,LogOut,Menu,SunMoon,CircleCheck,ArrowRight,Plus,Sparkles,ArrowUpRight,Wallet,BadgeDollarSign,AlarmClock,ChartPie,ChevronRight,CalendarCheck,Search,UserPlus,Check,Pencil,UserRound,Printer,MessageCircle,Download};
 window.Alpine=Alpine;
+Alpine.data('productPlan',seed=>({
+ price:seed.price,initial:seed.initial,count:seed.count,vehicleModel:seed.model||'',color:seed.color||'',images:seed.images||{},imageFailed:false,
+ init(){this.$watch('vehicleImage',()=>{this.imageFailed=false;});},
+ get vehicle(){const model=String(this.vehicleModel).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');return Object.entries(this.images).find(([key,vehicle])=>key===model||(vehicle.aliases||[]).includes(model))?.[1]||null;},
+ get vehicleImage(){return this.vehicle?.colors[this.color]||'';},
+ get vehicleCaption(){return this.vehicle?this.vehicle.label+' · '+this.color.charAt(0).toUpperCase()+this.color.slice(1):'';},
+ cents(value){const match=String(value??'').match(/^(\d{1,10})(?:\.(\d{1,2}))?$/);return match?Number(match[1])*100+Number((match[2]||'').padEnd(2,'0')):null;},
+ money(value){return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(value/100);},
+ get error(){const total=this.cents(this.price),initial=this.cents(this.initial),count=Number(this.count);if(total===null||total<=0)return 'Ingresa el precio Tráetelo con Bera para previsualizar el plan.';if(initial===null)return 'Ingresa una inicial válida.';if(initial>total)return 'La inicial no puede superar el precio Tráetelo con Bera.';if(!Number.isInteger(count)||count<1||count>120)return 'La cantidad de cuotas debe estar entre 1 y 120.';if(total>initial&&total-initial<count)return 'El saldo es menor a un céntimo por cuota.';return '';},
+ get schedule(){if(this.error)return [];const balance=this.cents(this.price)-this.cents(this.initial),count=Number(this.count);if(balance===0)return [];return Array.from({length:count},(_,index)=>({number:index+1,amount:Math.floor(balance/count)+(index<balance%count?1:0)}));},
+}));
 const clientRelation=seed=>({
  clientId:seed.client?String(seed.client.id):'',clientDealers:seed.client?{[seed.client.id]:seed.client.dealership_id}:{},selectedClient:seed.client,clientText:seed.client?seed.client.name+' · '+seed.client.document:'',clientOptions:[],clientOpen:false,clientLoading:false,clientLookupError:'',clientHasMore:false,activeClientIndex:-1,clientSearchVersion:0,clientTimer:null,clientsUrl:seed.clientsUrl,error:'',
  openClientOptions(){this.clientOpen=true;if(!this.clientOptions.length&&!this.clientLoading)this.loadClients(++this.clientSearchVersion);},

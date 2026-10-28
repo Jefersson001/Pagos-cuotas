@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -35,7 +36,7 @@ class ProductController extends Controller
     {
         Gate::authorize('create', Product::class);
 
-        return view('products.form', ['product' => new Product(['active' => true])]);
+        return view('products.form', ['product' => new Product(['active' => true, 'installment_count' => 5])]);
     }
 
     public function edit(Product $product): View
@@ -61,7 +62,22 @@ class ProductController extends Controller
 
     private function save(Request $r, Product $product): RedirectResponse
     {
-        $v = $r->validate(['name' => 'required|string|max:180', 'price' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/', 'initial_amount' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/', 'active' => 'required|boolean', 'dealership_id' => 'nullable|integer|exists:dealerships,id']);
+        $v = $r->validate([
+            'brand' => 'required|string|max:60',
+            'model' => 'required|string|max:80',
+            'transmission' => ['required', Rule::in(array_keys(Product::TRANSMISSIONS))],
+            'year' => 'required|integer|min:1900|max:'.(today()->year + 1),
+            'color' => ['required', Rule::in(array_keys(Product::COLORS))],
+            'cash_price' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/',
+            'price' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/',
+            'installment_count' => 'required|integer|min:1|max:120',
+            'initial_amount' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/',
+            'active' => 'required|boolean',
+            'dealership_id' => 'nullable|integer|exists:dealerships,id',
+        ]);
+        if (Money::cents($v['cash_price']) <= 0) {
+            throw ValidationException::withMessages(['cash_price' => 'El precio contado debe ser mayor a cero.']);
+        }
         if (Money::cents($v['price']) <= 0 || Money::cents($v['initial_amount']) > Money::cents($v['price'])) {
             throw ValidationException::withMessages(['initial_amount' => 'El precio debe ser mayor a cero y la inicial no puede superar el precio.']);
         }
@@ -72,7 +88,8 @@ class ProductController extends Controller
             }
             $dealer = DealershipContext::forWrite($r->user(), $r->user()->isAdmin() ? ($v['dealership_id'] ?? null) : null, $product->exists ? $product->dealership_id : null);
             $before = $product->getAttributes();
-            $product->fill(['name' => $v['name'], 'price' => $v['price'], 'initial_amount' => $v['initial_amount'], 'active' => $v['active'], 'dealership_id' => $dealer]);
+            $product->fill(collect($v)->except('dealership_id')->all());
+            $product->dealership_id = $dealer;
             if (! $product->exists) {
                 $product->user_id = $r->user()->id;
             }
