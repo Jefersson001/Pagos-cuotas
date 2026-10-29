@@ -6,7 +6,7 @@
 <form method="post" action="{{ route('receipts.store') }}" class="card form-card" x-data="receiptForm(@js(['client'=>$selectedClient,'clientsUrl'=>$clientSearchUrl,'accountUrl'=>route('receipts.account'),'orderId'=>old('order_id'),'installmentId'=>old('installment_id'),'methodId'=>old('payment_method_id')]))">
 @csrf<input type="hidden" name="token" value="{{ old('token',(string)Str::uuid()) }}">
 @include('components.client-relation')
-<p class="muted mt-4" x-show="accountLoading">Consultando cuenta del cliente…</p><p class="notice error mt-4" x-show="accountError" x-text="accountError" role="alert"></p>
+<p class="muted mt-4" x-show="accountLoading">Consultando cuenta del concesionario…</p><p class="notice error mt-4" x-show="accountError" x-text="accountError" role="alert"></p>
 <div class="detail-grid my-6" x-show="clientId && !accountLoading"><div><small>Deuda de ventas</small><strong x-text="money(debt)"></strong></div><div><small>Saldo a favor actual</small><strong x-text="money(credit)"></strong></div></div>
 <div class="form-grid mt-6">
 <label>Monto recibido ($)<input type="number" x-ref="amount" name="amount" min="0.01" max="9999999999.99" step="0.01" value="{{ old('amount') }}" required></label>

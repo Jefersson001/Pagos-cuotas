@@ -67,13 +67,13 @@ class ClientFormTest extends TestCase
         $this->get(route('clients.edit', $client))->assertOk()->assertViewHas('users', fn ($users) => $users->pluck('id')->all() === [$bUser->id])->assertViewHas('selectedDealershipId', $b->id);
     }
 
-    public function test_empty_dealership_returns_no_users_and_missing_responsible_shows_validation_error(): void
+    public function test_empty_company_returns_no_advisors_and_uses_admin_as_automatic_responsible(): void
     {
         $dealer = Dealership::factory()->create();
         $admin = $this->user('admin');
         $this->actingAs($admin)->getJson(route('clients.responsible-users', ['dealership_id' => $dealer->id]))->assertOk()->assertExactJson(['users' => []]);
-        $this->post(route('clients.store'), $this->data() + ['dealership_id' => $dealer->id])->assertSessionHasErrors('user_id');
-        $this->assertDatabaseCount('clients', 0);
+        $this->post(route('clients.store'), $this->data() + ['dealership_id' => $dealer->id])->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('clients', ['user_id' => $admin->id, 'dealership_id' => $dealer->id]);
     }
 
     #[TestWith(['+58 (412) 123-4567', '584121234567'])]
@@ -102,6 +102,6 @@ class ClientFormTest extends TestCase
         $user = $this->user();
         $client = Client::create($this->data() + ['user_id' => $user->id]);
         $this->actingAs($user)->put(route('clients.update', $client), $this->data() + ['whatsapp' => '(0414) 765-4321'])->assertSessionHasNoErrors();
-        $this->assertDatabaseHas('clients',['id' => $client->id, 'user_id' => $user->id, 'whatsapp' => '584147654321']);
+        $this->assertDatabaseHas('clients', ['id' => $client->id, 'user_id' => $user->id, 'whatsapp' => '584147654321']);
     }
 }

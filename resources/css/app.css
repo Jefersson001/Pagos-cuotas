@@ -234,4 +234,5 @@
 .product-vehicle-preview img{display:block;width:100%;height:auto;aspect-ratio:1800/850;object-fit:contain;background:#fff;border-radius:8px}
 .product-vehicle-preview figcaption{margin-top:12px;font-size:12px;color:var(--text-muted);text-align:center}
 .product-vehicle-preview .muted{line-height:1.6}
+[data-row-link]{cursor:pointer}[data-row-link]:hover,[data-row-link]:focus-within{background:var(--brand-soft)}
 @media(max-width:640px){.product-details-grid,.product-options-grid{grid-template-columns:1fr}.product-options-grid .product-color-field{padding:20px 16px}}

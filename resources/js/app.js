@@ -26,7 +26,7 @@ const clientRelation=seed=>({
   try{
    const url=new URL(this.clientsUrl,window.location.origin);url.searchParams.set('q',this.selectedClient?'':this.clientText.trim());
    const response=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});
-   if(!response.ok)throw new Error('No se pudieron consultar los clientes. Vuelve a escribir para intentarlo.');
+   if(!response.ok)throw new Error('No se pudieron consultar los concesionarios. Vuelve a escribir para intentarlo.');
    const data=await response.json();if(version!==this.clientSearchVersion)return;
    this.clientOptions=data.clients;this.clientHasMore=data.has_more;this.activeClientIndex=-1;
   }catch(error){if(version===this.clientSearchVersion){this.clientOptions=[];this.clientLookupError=error.message;}}
@@ -63,7 +63,7 @@ Alpine.data('saleWizard', (seed)=>({
  ensureCustom(){const count=Math.max(1,Math.min(120,Number(this.count)||1));for(let n=0;n<count;n++)if(!this.custom[n])this.custom[n]={due_date:this.first,amount:''};},
  get customTotal(){return this.custom.slice(0,Number(this.count)).reduce((n,i)=>n+this.cents(i.amount),0);},
  get schedule(){if(this.balance<=0)return [];const count=Math.max(1,Math.min(120,Number(this.count)||1));return Array.from({length:count},(_,n)=>{const d=new Date(`${this.first}T12:00:00`);if(Number.isNaN(d.getTime()))return {date:'',amount:0};if(this.frequency==='monthly'){const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+n);const max=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,max));}else d.setDate(d.getDate()+n*(this.frequency==='weekly'?7:15));return {date:d.toLocaleDateString('es-VE'),amount:Math.floor(this.balance/count)+(n<this.balance%count?1:0)};});},
- next(){this.error='';if(this.step===0&&(!this.clientId||!this.selectedClient)){this.error='Selecciona un cliente de las coincidencias.';this.$refs.clientInput.focus();return;}this.clientOpen=false;this.productOpen=false;if(this.step===1&&!this.items.length){this.error='Selecciona al menos un producto para el pedido.';return;}const section=this.$root.querySelector(`[data-step="${this.step}"]`);for(const field of section.querySelectorAll('input,select,textarea')){if(!field.checkValidity()){field.reportValidity();return;}}if(this.step>=2&&(this.total<=0||this.balance<0)){this.error='Revisa el total de la venta y el pago inicial.';return;}if(this.step===4&&this.frequency==='custom'&&this.balance>0&&this.customTotal!==this.balance){this.error='La suma de las cuotas debe coincidir con el saldo a financiar.';return;}this.step=Math.min(5,this.step+1);window.scrollTo({top:0,behavior:'smooth'});}
+ next(){this.error='';if(this.step===0&&(!this.clientId||!this.selectedClient)){this.error='Selecciona un concesionario de las coincidencias.';this.$refs.clientInput.focus();return;}this.clientOpen=false;this.productOpen=false;if(this.step===1&&!this.items.length){this.error='Selecciona al menos un producto para el pedido.';return;}const section=this.$root.querySelector(`[data-step="${this.step}"]`);for(const field of section.querySelectorAll('input,select,textarea')){if(!field.checkValidity()){field.reportValidity();return;}}if(this.step>=2&&(this.total<=0||this.balance<0)){this.error='Revisa el total de la venta y el pago inicial.';return;}if(this.step===4&&this.frequency==='custom'&&this.balance>0&&this.customTotal!==this.balance){this.error='La suma de las cuotas debe coincidir con el saldo a financiar.';return;}this.step=Math.min(5,this.step+1);window.scrollTo({top:0,behavior:'smooth'});}
 }));
 Alpine.data('clientForm',seed=>({
  dealershipId:seed.dealershipId,responsibleId:seed.responsibleId,users:seed.users,loading:false,error:'',requestNumber:0,url:seed.url,
@@ -102,7 +102,7 @@ Alpine.data('receiptForm',seed=>({
  get selectedOrder(){return this.orders.find(o=>String(o.id)===this.orderId);},
  money(c){return new Intl.NumberFormat('es-VE',{style:'currency',currency:'USD'}).format(c/100);},
  async loadAccount(){const version=++this.accountVersion;this.orders=[];this.methods=[];this.credit=0;this.debt=0;this.accountError='';this.accountLoading=false;if(!this.clientId)return;this.accountLoading=true;
- try{const url=new URL(seed.accountUrl,location.origin);url.searchParams.set('client_id',this.clientId);const response=await fetch(url,{cache:'no-store',credentials:'same-origin',headers:{Accept:'application/json'}});if(!response.ok)throw new Error('No se pudo consultar la cuenta del cliente.');const data=await response.json();if(version!==this.accountVersion)return;this.orders=data.orders;this.methods=data.methods;this.credit=data.credit;this.debt=data.debt;if(!this.methodId)this.methodId=String(this.methods[0]?.id||'');}
+ try{const url=new URL(seed.accountUrl,location.origin);url.searchParams.set('client_id',this.clientId);const response=await fetch(url,{cache:'no-store',credentials:'same-origin',headers:{Accept:'application/json'}});if(!response.ok)throw new Error('No se pudo consultar la cuenta del concesionario.');const data=await response.json();if(version!==this.accountVersion)return;this.orders=data.orders;this.methods=data.methods;this.credit=data.credit;this.debt=data.debt;if(!this.methodId)this.methodId=String(this.methods[0]?.id||'');}
  catch(e){if(version===this.accountVersion)this.accountError=e.message;}finally{if(version===this.accountVersion)this.accountLoading=false;}}
 }));
 Alpine.start();createIcons({icons});
@@ -221,6 +221,12 @@ document.addEventListener('submit',event=>{
  if(form.method==='post')setTimeout(()=>form.querySelectorAll('button:not([type=button])').forEach(button=>{button.disabled=true;button.textContent='Guardando…';}),0);
 });
 document.addEventListener('click',event=>{
+ const row=event.target.closest('[data-row-link]');
+ if(row&&!event.defaultPrevented&&!event.target.closest('a,button,input,select,textarea,label,[contenteditable="true"]')){
+  if(window.getSelection()?.toString().trim())return;
+  if(event.ctrlKey||event.metaKey||event.shiftKey)window.open(row.dataset.rowLink,'_blank','noopener,noreferrer');else window.location.assign(row.dataset.rowLink);
+  return;
+ }
  const whatsapp=event.target.closest('.whatsapp');if(whatsapp){const text=window.prompt('Edita el recordatorio antes de abrir WhatsApp:',whatsapp.dataset.message);if(text?.trim())window.open(`https://wa.me/${whatsapp.dataset.phone}?text=${encodeURIComponent(text)}`,'_blank','noopener,noreferrer');return;}
  const clear=event.target.closest('[data-clear-filters]');if(clear){const form=clear.closest('[data-live-filters]');if(!form)return;event.preventDefault();for(const field of form.elements){if(!field.name||field.matches('[data-context-url]'))continue;if(field instanceof HTMLSelectElement)field.selectedIndex=0;else field.value='';}scheduleFilters(form,true);return;}
  const link=event.target.closest('[data-live-panel] .pagination a');if(!link||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;

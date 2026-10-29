@@ -241,12 +241,12 @@ class DealershipTest extends TestCase
 
     public function test_global_admin_creates_and_edits_dealership_and_keeps_existing_data(): void
     {
-        $this->actingAs($this->user('admin'))->get(route('dealerships.index'))->assertOk()->assertSee('Concesionario principal');
-        $this->get(route('dealerships.create'))->assertOk();
+        $this->actingAs($this->user('admin'))->get(route('dealerships.index'))->assertRedirect(route('clients.index'));
+        $this->get(route('dealerships.create'))->assertRedirect(route('clients.create'));
         $this->post(route('dealerships.store'), ['name' => 'Bera Caracas', 'code' => 'BERA-CCS', 'active' => 1])->assertSessionHasNoErrors()->assertRedirect();
         $dealer = Dealership::where('code', 'BERA-CCS')->firstOrFail();
         $this->assertSame(6, PaymentMethod::where('dealership_id', $dealer->id)->count());
-        $this->get(route('dealerships.edit', $dealer))->assertOk();
+        $this->get(route('dealerships.edit', $dealer))->assertRedirect(route('clients.index'));
         $this->put(route('dealerships.update', $dealer), ['name' => 'Bera Caracas Centro', 'code' => 'BERA-CCS', 'active' => 0])->assertSessionHasNoErrors();
         $this->assertFalse($dealer->fresh()->active);
         $this->assertDatabaseHas('dealerships', ['code' => 'PRINCIPAL', 'active' => true]);

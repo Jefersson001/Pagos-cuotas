@@ -10,7 +10,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use Illuminate\View\View;
 
 class DealershipController extends Controller
 {
@@ -19,29 +18,25 @@ class DealershipController extends Controller
         abort_unless($request->user()->isAdmin(), 403);
     }
 
-    public function index(Request $request): View
+    public function index(Request $request): RedirectResponse
     {
         $this->check($request);
-        $query = Dealership::withCount(['users', 'clients', 'orders']);
-        if ($request->filled('q')) {
-            $query->where('name', 'like', '%'.$request->string('q')->toString().'%');
-        }
 
-        return view('admin.dealerships.index', ['rows' => $query->orderBy('name')->paginate(20)->withQueryString()]);
+        return redirect()->route('clients.index');
     }
 
-    public function create(Request $request): View
+    public function create(Request $request): RedirectResponse
     {
         $this->check($request);
 
-        return view('admin.dealerships.form', ['dealership' => new Dealership(['active' => true])]);
+        return redirect()->route('clients.create');
     }
 
-    public function edit(Request $request, Dealership $dealership): View
+    public function edit(Request $request, Dealership $dealership): RedirectResponse
     {
         $this->check($request);
 
-        return view('admin.dealerships.form', compact('dealership'));
+        return redirect()->route('clients.index');
     }
 
     public function store(Request $request): RedirectResponse

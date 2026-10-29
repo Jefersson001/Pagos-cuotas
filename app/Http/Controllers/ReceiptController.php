@@ -79,7 +79,7 @@ class ReceiptController extends Controller
             return $receipt;
         }, 3);
 
-        return redirect()->route('receipts.show', $receipt)->with('success', 'Pago registrado. El importe sin aplicar queda como saldo a favor del cliente.');
+        return redirect()->route('receipts.show', $receipt)->with('success', 'Pago registrado. El importe sin aplicar queda como saldo a favor del concesionario.');
     }
 
     public function show(Receipt $receipt)

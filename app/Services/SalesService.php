@@ -29,7 +29,7 @@ class SalesService
             Gate::forUser($actor)->authorize('view', $client);
             DealershipContext::forWrite($actor, null, $client->dealership_id);
             if (! $client->active) {
-                $this->fail('El cliente está inactivo.');
+                $this->fail('El concesionario está inactivo.');
             }
             if ($old = Order::where('token', $data['token'])->first()) {
                 Gate::forUser($actor)->authorize('view', $old);
@@ -44,7 +44,7 @@ class SalesService
                 foreach ($data['items'] as $item) {
                     $product = $products->get($item['product_id'] ?? null);
                     if (! $product) {
-                        $this->fail('Selecciona productos activos del mismo concesionario que el cliente.');
+                        $this->fail('Selecciona productos activos del mismo concesionario que el concesionario.');
                     }
                     $initialTotal += Money::cents($product->initial_amount) * (int) $item['quantity'];
                     if ($initialTotal > 999999999999) {
@@ -138,7 +138,7 @@ class SalesService
             $credit = $receipts->sum('available_cents');
             $useCredit = ($data['payment_source'] ?? 'new') === 'credit';
             if ($credit > 0 && ! $useCredit && empty($data['new_payment'])) {
-                $this->fail('El cliente tiene saldo a favor. Utiliza ese saldo o marca Nuevo pago para registrar dinero nuevo.');
+                $this->fail('El concesionario tiene saldo a favor. Utiliza ese saldo o marca Nuevo pago para registrar dinero nuevo.');
             }
             if ($useCredit && ($amount <= 0 || $amount > $credit)) {
                 $this->fail('El monto a aplicar debe ser mayor a cero y no superar el saldo a favor disponible. Actualiza la venta para consultar el saldo actual.');

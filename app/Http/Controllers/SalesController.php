@@ -104,7 +104,7 @@ class SalesController extends Controller
         $v = $r->validate(['reason' => 'required|string|min:10|max:1000']);
         $service->void($r->user(), $payment, $v['reason']);
 
-        return back()->with('success', 'Aplicación desvinculada. El importe queda disponible como saldo a favor del cliente.');
+        return back()->with('success', 'Aplicación desvinculada. El importe queda disponible como saldo a favor del concesionario.');
     }
 
     public function cancel(Request $r, Order $order)

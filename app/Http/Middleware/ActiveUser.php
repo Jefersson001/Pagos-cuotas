@@ -33,7 +33,7 @@ class ActiveUser
         View::share([
             'dealerships' => $user->isAdmin() ? Dealership::orderBy('name')->get() : collect([$currentDealership])->filter(),
             'currentDealership' => $currentDealership,
-            'businessName' => $currentDealership?->name ?? 'Todos los concesionarios',
+            'businessName' => $currentDealership?->name ?? 'Bera Cars',
         ]);
 
         return $next($r);

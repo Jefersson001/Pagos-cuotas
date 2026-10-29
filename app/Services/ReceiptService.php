@@ -36,7 +36,7 @@ class ReceiptService
                 return $old;
             }
             if (! $client->active || $amount <= 0 || $amount > 999999999999) {
-                $this->fail('El cliente debe estar activo y el monto debe ser mayor a cero.');
+                $this->fail('El concesionario debe estar activo y el monto debe ser mayor a cero.');
             }
             $method = PaymentMethod::where('active', true)->where('dealership_id', $client->dealership_id)->lockForUpdate()->find($data['payment_method_id']);
             if (! $method) {
@@ -60,7 +60,7 @@ class ReceiptService
             $order = Order::lockForUpdate()->findOrFail($orderId);
             Gate::forUser($actor)->authorize('update', $order);
             if ($order->client_id != $receipt->client_id || $order->dealership_id != $receipt->dealership_id) {
-                $this->fail('La venta debe pertenecer al mismo cliente y concesionario del pago.');
+                $this->fail('La venta debe pertenecer al mismo concesionario y concesionario del pago.');
             }
             $amount = Money::cents($data['amount']);
             if ($old = Payment::where('token', $data['token'])->first()) {

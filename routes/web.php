@@ -22,8 +22,12 @@ Route::middleware(['auth', 'auth.session', ActiveUser::class])->group(function (
     Route::resource('settings/dealerships', DealershipController::class)->except(['show', 'destroy']);
     Route::post('/dealership-context', [DealershipController::class, 'context'])->name('dealership-context');
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/clients/responsible-users', [ClientController::class, 'responsibleUsers'])->name('clients.responsible-users');
-    Route::resource('clients', ClientController::class)->except('destroy');
+    Route::get('/concesionarios/responsible-users', [ClientController::class, 'responsibleUsers'])->name('clients.responsible-users');
+    Route::resource('concesionarios', ClientController::class)->parameters(['concesionarios' => 'client'])->names('clients')->except('destroy');
+    Route::get('/clients', fn () => redirect()->route('clients.index'));
+    Route::get('/clients/create', fn () => redirect()->route('clients.create'));
+    Route::get('/clients/{client}/edit', fn (string $client) => redirect()->route('clients.edit', $client));
+    Route::get('/clients/{client}', fn (string $client) => redirect()->route('clients.show', $client));
     Route::get('/orders', [SalesController::class, 'orders'])->name('orders.index');
     Route::get('/products/options', [ProductController::class, 'options'])->name('products.options');
     Route::resource('products', ProductController::class)->except('show');
