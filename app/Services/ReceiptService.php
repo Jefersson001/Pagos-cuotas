@@ -73,9 +73,27 @@ class ReceiptService
         }, 3);
     }
 
-    public function approve(User $actor, Receipt $receipt): Receipt
+    /** @return array{applied_cents: int, credit_cents: int, changed: bool, blocked: bool} */
+    public function approvalPreview(Receipt $receipt): array
     {
-        return DB::transaction(function () use ($actor, $receipt): Receipt {
+        $amount = Money::cents($receipt->amount);
+        $planned = Money::cents($receipt->intended_amount ?? $receipt->amount);
+        $order = $receipt->sourceOrder;
+        $blocked = $receipt->source_order_id && (! $order || $order->cancelled || $order->client_id !== $receipt->client_id || $order->dealership_id !== $receipt->dealership_id);
+        $limit = $order && ! $blocked ? $order->balance_cents : 0;
+        if ($order && $receipt->intended_installment_id) {
+            $target = $order->installments->firstWhere('id', $receipt->intended_installment_id);
+            $blocked = $blocked || ! $target;
+            $limit = $target?->remaining_cents ?? 0;
+        }
+        $applied = $order && ! $blocked ? max(0, min($amount, $planned, $limit)) : 0;
+
+        return ['applied_cents' => $applied, 'credit_cents' => $amount - $applied, 'changed' => (bool) $order && $applied !== min($amount, $planned), 'blocked' => (bool) $blocked];
+    }
+
+    public function approve(User $actor, Receipt $receipt, ?int $expectedAppliedCents = null): Receipt
+    {
+        return DB::transaction(function () use ($actor, $receipt, $expectedAppliedCents): Receipt {
             Client::lockForUpdate()->findOrFail($receipt->client_id);
             $receipt = Receipt::lockForUpdate()->findOrFail($receipt->id);
             Gate::forUser($actor)->authorize('review', $receipt);
@@ -85,6 +103,13 @@ class ReceiptService
             }
             if ($receipt->approval_status !== 'pending' || $receipt->voided_at) {
                 $this->fail('Solo se puede aprobar un pago pendiente y sin anular.');
+            }
+            if ($receipt->source_order_id) {
+                $receipt->setRelation('sourceOrder', Order::lockForUpdate()->findOrFail($receipt->source_order_id));
+            }
+            $preview = $this->approvalPreview($receipt);
+            if ($expectedAppliedCents !== null && $preview['applied_cents'] !== $expectedAppliedCents) {
+                $this->fail('La deuda cambió desde que abriste el pago. Actualiza la ficha y revisa los importes antes de aprobar.');
             }
             $receipt->update(['approval_status' => 'approved', 'approved_at' => now(), 'approved_by' => $actor->id]);
             if ($receipt->source_order_id) {

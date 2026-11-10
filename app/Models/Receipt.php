@@ -71,4 +71,20 @@ class Receipt extends OwnedModel
 
         return $this->voided_at ? 'Anulado' : ($this->available_cents === 0 ? 'Aplicado' : ($this->applied_cents > 0 ? 'Parcialmente aplicado' : 'Sin aplicar'));
     }
+
+    public function getApprovalLabelAttribute(): string
+    {
+        return $this->voided_at ? 'Anulado' : match ($this->approval_status) {
+            'approved' => 'Aprobado', 'rejected' => 'Rechazado', default => 'Pendiente de aprobación',
+        };
+    }
+
+    public function getApplicationStatusAttribute(): string
+    {
+        if ($this->voided_at || $this->approval_status !== 'approved') {
+            return 'Sin aplicación';
+        }
+
+        return $this->applied_cents === 0 ? 'Sin aplicar' : ($this->available_cents > 0 ? 'Parcialmente aplicado' : 'Aplicado');
+    }
 }

@@ -116,7 +116,7 @@ class ClientController extends Controller
     {
         Gate::authorize('view', $client);
         if ($request->user()->isHeadOffice()) {
-            $headOfficeResults = app(HeadOfficeOverviewService::class)->build($request)['rows']->firstWhere('id', $client->id);
+            $headOfficeResults = app(HeadOfficeOverviewService::class)->build($request, null, null, $client->id)['rows']->firstWhere('id', $client->id);
 
             return view('clients.show', compact('client', 'headOfficeResults'));
         }
@@ -201,6 +201,14 @@ class ClientController extends Controller
                 $locked = Client::lockForUpdate()->findOrFail($client->id);
                 Gate::forUser($r->user())->authorize('update', $locked);
                 $client->setRawAttributes($locked->getAttributes(), true);
+                if ($client->orders()->exists() || $client->receipts()->exists()) {
+                    if ($client->customer_kind !== $v['customer_kind']) {
+                        throw ValidationException::withMessages(['customer_kind' => 'Este contacto tiene operaciones. Conserva su tipo para proteger el historial.']);
+                    }
+                    if ($client->concessionaire_id !== $v['concessionaire_id']) {
+                        throw ValidationException::withMessages(['concessionaire_id' => 'Este cliente tiene operaciones. Su concesionario debe conservarse para no trasladar deudas y pagos históricos.']);
+                    }
+                }
                 if ($client->customer_kind === 'dealership' && $v['customer_kind'] !== 'dealership'
                     && ($client->customers()->exists() || User::where('concessionaire_id', $client->id)->exists())) {
                     throw ValidationException::withMessages(['customer_kind' => 'Este concesionario tiene clientes o usuarios relacionados. Conserva su tipo de contacto.']);

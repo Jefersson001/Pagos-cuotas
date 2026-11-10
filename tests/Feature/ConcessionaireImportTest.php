@@ -171,7 +171,7 @@ class ConcessionaireImportTest extends TestCase
         foreach ((new \DOMXPath($document))->query('//*[@data-concessionaire-details]//small') as $label) {
             $labels[] = $label->textContent;
         }
-        $this->assertSame(['Tipo', 'Cliente', 'Condición', 'Fecha de inicio', 'Representante legal', 'Dirección', 'Ciudad', 'Estado', 'RIF', 'Teléfono', 'Correo', 'Organización'], $labels);
+        $this->assertSame(['Tipo', 'Concesionario / Razón social', 'Condición', 'Fecha de inicio', 'Representante legal', 'Dirección', 'Ciudad', 'Estado', 'RIF', 'Teléfono', 'Correo', 'Organización'], $labels);
         $record->update(['whatsapp' => '584121234567', 'notes' => 'Histórico']);
         $this->put(route('clients.update', $record), ['name' => 'Empresa actualizada', 'condition' => 'INACTIVO'])->assertSessionHasNoErrors();
         $this->assertSame($owner->id, $record->fresh()->user_id);

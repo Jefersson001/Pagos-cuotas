@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {execFileSync} from 'node:child_process';
 let credentials;
-test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php','dashboard'],{env:{...process.env,DB_CONNECTION:'mysql',DB_DATABASE:'ventas_cuotas_browser'},encoding:'utf8'}));});
+test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php','dashboard'],{env:{...process.env,DB_CONNECTION:process.env.BROWSER_DB_CONNECTION||'mysql',DB_DATABASE:process.env.BROWSER_DB_DATABASE||'ventas_cuotas_browser'},encoding:'utf8'}));});
 
 test('monthly dates in sales and payments update live and preserve custom ranges',async({page})=>{
  test.setTimeout(90000);const errors=[];page.on('pageerror',e=>errors.push(e.message));

@@ -1,12 +1,12 @@
 import {test,expect} from '@playwright/test';
 import {execFileSync} from 'node:child_process';
 let credentials;
-test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php'],{env:{...process.env,DB_CONNECTION:'mysql',DB_DATABASE:'ventas_cuotas_browser'},encoding:'utf8'}));});
+test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php'],{env:{...process.env,DB_CONNECTION:process.env.BROWSER_DB_CONNECTION||'mysql',DB_DATABASE:process.env.BROWSER_DB_DATABASE||'ventas_cuotas_browser'},encoding:'utf8'}));});
 test('las filas consultan y las acciones permiten editar duplicar y eliminar',async({page})=>{
  test.setTimeout(90000);page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto('/login');await page.getByLabel('Correo electrónico').fill(credentials.email);await page.getByLabel('Contraseña',{exact:true}).fill(credentials.password);await page.getByRole('button',{name:'Ingresar al panel'}).click();
- await page.locator('[data-module-card]').filter({has:page.getByRole('heading',{name:'Ajustes',exact:true})}).click();
- await page.locator('.workspace-navigation nav').getByRole('link',{name:'Métodos de pago',exact:true}).click();
+ await page.locator('[data-module-card]').filter({has:page.getByRole('heading',{name:'Ventas',exact:true})}).click();
+ await page.locator('.workspace-nav-group summary').filter({hasText:'Pagos'}).click();await page.locator('.workspace-navigation nav').getByRole('link',{name:'Métodos de pago',exact:true}).click();
  await page.getByRole('link',{name:'Nuevo método de pago',exact:true}).click();
  await expect(page.locator('[data-record-status] [aria-current=step]')).toHaveText('Borrador');
  await page.getByLabel('Nombre',{exact:true}).fill('Método temporal');

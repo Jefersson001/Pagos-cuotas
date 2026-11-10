@@ -1,6 +1,11 @@
 @extends('layouts.app')
 @section('title','Inicio')
 @section('content')
+@if(auth()->user()->isHeadOffice())
+<section class="card role-shortcuts mb-6"><div><strong>{{ $pendingPayments }} {{ $pendingPayments===1?'pago pendiente de aprobación':'pagos pendientes de aprobación' }}</strong><p class="muted">Revisa lo registrado por tus concesionarios antes de actualizar los saldos de sus clientes.</p></div><a class="btn primary" href="{{ route('receipts.index',['state'=>'pending']) }}">Revisar pagos</a></section>
+@elseif(auth()->user()->canOperateFinancial())
+<nav class="role-shortcuts mb-6" aria-label="Acciones frecuentes"><a class="btn primary" href="{{ route('orders.create') }}">Nueva venta</a><a class="btn secondary" href="{{ route('receipts.create') }}">Registrar pago</a><a class="btn secondary" href="{{ route('collections') }}">Cuentas por cobrar</a></nav>
+@endif
 <section class="module-launcher" aria-labelledby="modules-title" x-data="{search:''}">
     <div class="launcher-heading">
         <div class="launcher-introduction">

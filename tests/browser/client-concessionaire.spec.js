@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 import {execFileSync} from 'node:child_process';
 
 let credentials;
-test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php'],{env:{...process.env,DB_CONNECTION:'mysql',DB_DATABASE:'ventas_cuotas_browser'},encoding:'utf8'}));});
+test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php'],{env:{...process.env,DB_CONNECTION:process.env.BROWSER_DB_CONNECTION||'mysql',DB_DATABASE:process.env.BROWSER_DB_DATABASE||'ventas_cuotas_browser'},encoding:'utf8'}));});
 
 test('cliente con concesionario de Contactos y asignación automática por usuario',async({page})=>{
  test.setTimeout(180000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -22,14 +22,14 @@ test('cliente con concesionario de Contactos y asignación automática por usuar
  await expect(page.getByRole('combobox',{name:'Concesionario',exact:true})).toBeHidden();
  await page.getByLabel('Cliente / Razón social').fill('Concesionario de Contactos');
  await page.getByLabel('RIF',{exact:true}).fill('J-CONTACT-001');
- await page.getByRole('button',{name:'Guardar cliente',exact:true}).click();
+ await page.getByRole('button',{name:/^Guardar (cliente|concesionario)$/,exact:true}).click();
  await expect(page.getByRole('heading',{name:'Concesionario de Contactos',exact:true})).toBeVisible();
 
  await page.goto('/clientes/create');
  await page.getByLabel('Nombre y apellido').fill('Cliente elegido por administrador');
  await page.getByRole('combobox',{name:'Concesionario',exact:true}).selectOption({label:'Concesionario de Contactos · J-CONTACT-001'});
  await page.screenshot({path:'test-results/client-concessionaire-admin.png',fullPage:true});
- await page.getByRole('button',{name:'Guardar cliente',exact:true}).click();
+ await page.getByRole('button',{name:/^Guardar (cliente|concesionario)$/,exact:true}).click();
  await expect(page.getByRole('heading',{name:'Cliente elegido por administrador',exact:true})).toBeVisible();
  await expect(page.locator('[data-concessionaire-details]')).toContainText('Concesionario de Contactos');
 
@@ -52,7 +52,7 @@ test('cliente con concesionario de Contactos y asignación automática por usuar
  await page.getByLabel('Nombre de usuario',{exact:true}).fill('contact_user');
  await page.getByLabel('Correo de acceso',{exact:true}).fill('contact-user@example.test');
  await page.getByLabel('Contraseña',{exact:true}).fill(password);
- await page.getByRole('combobox',{name:'Rol',exact:true}).selectOption({label:'Concesionario'});await page.getByRole('checkbox',{name:'Relacionar contacto',exact:true}).check();
+ await page.getByRole('combobox',{name:'Rol',exact:true}).selectOption({label:'Concesionario'});await page.getByRole('checkbox',{name:'Usar un contacto existente',exact:true}).check();
 
  await page.getByRole('combobox',{name:'Concesionario asignado',exact:true}).selectOption({label:'Concesionario de Contactos · J-CONTACT-001'});
  await page.getByRole('button',{name:'Guardar usuario',exact:true}).click();
@@ -68,7 +68,7 @@ test('cliente con concesionario de Contactos y asignación automática por usuar
  await page.setViewportSize({width:390,height:844});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  await page.screenshot({path:'test-results/client-concessionaire-automatic-mobile.png',fullPage:true});
- await page.getByRole('button',{name:'Guardar cliente',exact:true}).click();
+ await page.getByRole('button',{name:/^Guardar (cliente|concesionario)$/,exact:true}).click();
  await expect(page.getByRole('heading',{name:'Cliente asignado automáticamente',exact:true})).toBeVisible();
  await expect(page.locator('[data-concessionaire-details]')).toContainText('Concesionario de Contactos');
  expect(errors).toEqual([]);

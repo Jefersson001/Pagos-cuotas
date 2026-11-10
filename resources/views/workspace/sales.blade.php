@@ -1,6 +1,6 @@
 @extends('layouts.app')
 @section('title','Resumen de ventas')
-@section('subtitle','Ventas programadas, pagos y cobranza conectados en un solo lugar.')
+@section('subtitle','Ventas, pagos y cobranza conectados en un solo lugar.')
 @section('actions')
 <a class="btn secondary" href="{{ route('orders.create') }}"><i data-lucide="plus"></i>Nueva venta</a>
 <a class="btn primary" href="{{ route('receipts.create') }}"><i data-lucide="wallet"></i>Registrar pago</a>

@@ -134,4 +134,13 @@ class UserAutomaticContactTest extends TestCase
         $this->assertDatabaseMissing('users', ['username' => 'automatic_contact']);
         $this->assertDatabaseCount('clients', 0);
     }
+
+    public function test_automatic_contact_creation_warns_when_the_email_is_already_registered(): void
+    {
+        $values = $this->accountData('dealership_admin');
+        $contact = Client::factory()->concessionaire()->create(['email' => $values['email']]);
+        $this->post(route('users.store'), $values + ['dealership_id' => $contact->dealership_id])->assertSessionHasErrors('relate_contact');
+        $this->assertDatabaseMissing('users', ['username' => $values['username']]);
+        $this->assertDatabaseCount('clients', 1);
+    }
 }

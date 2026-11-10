@@ -83,8 +83,9 @@ class ProductController extends Controller
     {
         $r->mergeIfMissing(['product_type' => $r->filled('brand') && $r->filled('model') ? 'vehicle' : 'general', 'installment_count' => 5, 'initial_amount' => '0', 'active' => $product->active ?? true, 'pay_in_installments' => $product->pay_in_installments ?? true]);
         if (! $r->boolean('pay_in_installments')) {
-            $r->merge(['cash_price' => $r->input('price'), 'initial_amount' => $r->input('price'), 'installment_count' => 1]);
+            $r->merge(['price' => $r->input('price', $r->input('cash_price')), 'initial_amount' => $r->input('price', $r->input('cash_price')), 'installment_count' => 1]);
         }
+        $r->merge(['cash_price' => $r->input('price')]);
         $v = $r->validate([
             'duplicate_product_id' => 'nullable|integer|exists:products,id', 'product_type' => 'required|in:general,vehicle,service', 'name' => 'required_unless:product_type,vehicle|nullable|string|max:180',
             'sku' => 'nullable|string|max:80', 'description' => 'nullable|string|max:2000', 'pay_in_installments' => 'required|boolean',
@@ -96,7 +97,7 @@ class ProductController extends Controller
             'active' => 'required|boolean', 'dealership_id' => 'nullable|integer|exists:dealerships,id', 'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
         ]);
         $total = Money::cents($v['price']);
-        if ($total <= 0 && ! $v['pay_in_installments']) {
+        if ($total <= 0) {
             throw ValidationException::withMessages(['price' => 'El precio de venta debe ser mayor a cero.']);
         }
         $v['cash_price'] = $v['cash_price'] ?? $v['price'];

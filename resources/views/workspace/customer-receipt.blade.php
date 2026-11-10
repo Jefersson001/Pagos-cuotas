@@ -3,6 +3,7 @@
 @section('subtitle',$receipt->created_at->format('d/m/Y H:i').' · '.$receipt->status)
 @section('actions')<a class="btn secondary" href="{{ route('portal.account') }}">Volver a mi cuenta</a>@endsection
 @section('content')
+@if($receipt->proof_path)<p class="mb-6"><a class="btn secondary" href="{{ route('portal.receipt-proof',$receipt) }}">Descargar comprobante</a></p>@endif
 @if($receipt->approval_status==='pending'&&!$receipt->voided_at)<p class="notice mb-6">Pago recibido, pendiente de aprobación por casa matriz. Todavía no reduce tu deuda ni está disponible como saldo a favor.</p>@elseif($receipt->approval_status==='rejected')<p class="notice error mb-6">Este pago fue rechazado. Consulta con tu concesionario para revisar el registro.</p>@elseif($receipt->approved_at)<p class="muted mb-6">Aprobado el {{ $receipt->approved_at->format('d/m/Y H:i') }}.</p>@endif
 <x-record-status :states="['Pendiente de aprobación','Registrado','Parcialmente aplicado','Aplicado','Rechazado','Anulado']" :current="$receipt->status==='Sin aplicar'?'Registrado':$receipt->status" />
 <div class="card form-card mb-6"><div class="detail-grid"><div><small>Recibido</small><strong>&#36;{{ number_format($receipt->amount,2) }}</strong></div><div><small>Aplicado</small><strong>&#36;{{ number_format($receipt->applied_cents/100,2) }}</strong></div><div><small>Disponible</small><strong>&#36;{{ number_format($receipt->available_cents/100,2) }}</strong></div></div><p class="muted mt-4">{{ $receipt->method->name }} · {{ $receipt->reference?:'Sin referencia' }}</p></div>

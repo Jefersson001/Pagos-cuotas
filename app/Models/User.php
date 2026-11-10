@@ -103,7 +103,7 @@ class User extends Authenticatable
             $modules['reports']['description'] = 'Consulta y exporta ventas, cobros y saldos consolidados por concesionario.';
 
             return [
-                'head-office' => ['name' => 'Concesionarios', 'icon' => 'users-round', 'description' => 'Registra tus concesionarios, consulta sus fichas y revisa sus resultados.', 'category' => 'Relaciones comerciales', 'route' => 'head-office.overview', 'patterns' => ['head-office.*', 'clients.*'], 'children' => [['name' => 'Resumen', 'route' => 'head-office.overview'], ['name' => 'Clientes', 'route' => 'clients.index']]],
+                'head-office' => ['name' => 'Concesionarios', 'icon' => 'users-round', 'description' => 'Registra tus concesionarios, consulta sus fichas y revisa sus resultados.', 'category' => 'Relaciones comerciales', 'route' => 'head-office.overview', 'patterns' => ['head-office.*', 'clients.*'], 'children' => [['name' => 'Resumen', 'route' => 'head-office.overview'], ['name' => 'Concesionarios', 'route' => 'clients.index']]],
                 'products' => $modules['products'],
                 'payments' => ['name' => 'Pagos', 'icon' => 'wallet', 'description' => 'Revisa y aprueba los pagos de tus concesionarios.', 'category' => 'Gestión comercial', 'route' => 'receipts.index', 'patterns' => ['receipts.*', 'payment-methods.*'], 'children' => [['name' => 'Pagos', 'route' => 'receipts.index'], ['name' => 'Métodos de pago', 'route' => 'payment-methods.index', 'payment_methods' => true]]],
                 'reports' => $modules['reports'],

@@ -19,7 +19,7 @@
 <div class="product-summary-kpis">
 @foreach([['Concesionarios',$total],['Vendido en el período',$money($totals['sold_cents'])],['Cobrado en el período',$money($totals['received_cents'])],['Deuda actual',$money($totals['debt_cents'])]] as [$label,$value])<section class="card product-summary-kpi"><div><span>{{ $label }}</span></div><strong>{{ $value }}</strong></section>@endforeach
 </div>
-<section class="card table-card"><div class="card-heading"><div><h2>Consolidado por concesionario</h2><p>Las fechas filtran las ventas y cobros registrados. Los saldos incluyen toda la cartera vigente. Importes en USD.</p></div><span class="pill neutral">{{ $total }} resultados</span></div>
+<section class="card table-card"><div class="card-heading"><div><h2>Consolidado por concesionario</h2><p>Las fechas filtran las ventas y cobros registrados. Los saldos incluyen toda la cartera vigente de los clientes finales de cada concesionario. Importes en USD.</p></div><span class="pill neutral">{{ $total }} resultados</span></div>
 <div class="table-scroll"><table data-head-office-report><thead><tr>@foreach($columns as $column)<th>{{ $column }}</th>@endforeach</tr></thead><tbody>
 @forelse($rows as $row)<tr data-concessionaire-id="{{ $row['id'] }}"><td><strong>{{ $row['name'] }}</strong><small>{{ $row['active']?'Activo':'Inactivo' }}</small></td><td>{{ $row['code']?:'—' }}</td>@foreach(['clients','sales_month','sold_cents','received_cents','debt_cents','overdue_cents','credit_cents'] as $field)<td>{{ str_ends_with($field,'_cents')?$money($row[$field]):$row[$field] }}</td>@endforeach</tr>
 @empty<tr><td colspan="9" class="empty">No hay concesionarios para estos filtros.</td></tr>@endforelse

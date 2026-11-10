@@ -30,6 +30,6 @@ class HeadOfficeReportService
 
         return $report + ['totals' => $totals, 'from' => $request->input('from'), 'to' => $request->input('to'),
             'concessionaires' => Client::where('dealership_id', $report['company']->id)->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name']),
-            'columns' => ['Concesionario', 'RIF', 'Clientes actuales', 'Ventas del período', 'Vendido en el período', 'Cobrado en el período', 'Deuda actual', 'Deuda vencida actual', 'Saldo a favor actual'], 'csv_rows' => $csvRows];
+            'columns' => ['Concesionario', 'RIF', 'Clientes actuales', 'Ventas del período', 'Vendido en el período', 'Cobrado en el período', 'Cartera de clientes actual', 'Cartera vencida actual', 'Saldo a favor actual'], 'csv_rows' => $csvRows];
     }
 }

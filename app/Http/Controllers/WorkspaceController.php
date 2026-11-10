@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Receipt;
 use App\Services\CustomerOverviewService;
 use App\Services\ProductOverviewService;
 use App\Services\SalesOverviewService;
@@ -18,7 +19,11 @@ class WorkspaceController extends Controller
             return redirect()->route('portal.account');
         }
 
-        return view('workspace.home', ['modules' => $request->user()->workspaceModules()]);
+        $pendingPayments = $request->user()->isHeadOffice()
+            ? Receipt::visibleTo($request->user())->where('approval_status', 'pending')->whereNull('voided_at')->count()
+            : 0;
+
+        return view('workspace.home', ['modules' => $request->user()->workspaceModules(), 'pendingPayments' => $pendingPayments]);
     }
 
     public function customers(Request $request, CustomerOverviewService $overview): View

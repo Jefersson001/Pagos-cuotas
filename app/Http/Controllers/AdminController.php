@@ -115,7 +115,7 @@ class AdminController extends Controller
         }
         if ($createContact) {
             if ($r->filled('client_id') || ($role->name === 'dealership_admin' && $r->filled('concessionaire_id'))) {
-                throw ValidationException::withMessages(['relate_contact' => 'Marca Relacionar contacto para seleccionar una ficha existente.']);
+                throw ValidationException::withMessages(['relate_contact' => 'Selecciona Usar un contacto existente para relacionar una ficha ya registrada.']);
             }
             if ($role->name === 'customer') {
                 $contact = Client::where('customer_kind', 'dealership')->where('active', true)->find($v['concessionaire_id']);
@@ -184,6 +184,9 @@ class AdminController extends Controller
             if (! Dealership::whereKey($v['dealership_id'])->where('organization_type', $expectedType)->exists()) {
                 throw ValidationException::withMessages(['dealership_id' => $role->name === 'head_office' ? 'Selecciona una casa matriz.' : 'Selecciona un concesionario.']);
             }
+        }
+        if ($createContact && Client::where('dealership_id', $v['dealership_id'])->where('customer_kind', $role->name === 'customer' ? 'person' : 'dealership')->where('email', $v['email'])->exists()) {
+            throw ValidationException::withMessages(['relate_contact' => 'Ya existe un contacto con este correo. Selecciona Usar un contacto existente para evitar duplicarlo.']);
         }
         DB::transaction(function () use ($r, $user, $v, $role, $createContact) {
             if ($v['dealership_id']) {

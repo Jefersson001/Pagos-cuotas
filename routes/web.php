@@ -30,6 +30,7 @@ Route::middleware(['auth', 'auth.session', ActiveUser::class, RoleAccess::class]
     Route::get('/mi-cuenta', [PortalController::class, 'account'])->name('portal.account');
     Route::get('/mi-cuenta/ventas/{order}', [PortalController::class, 'order'])->name('portal.order');
     Route::get('/mi-cuenta/pagos/{receipt}', [PortalController::class, 'receipt'])->name('portal.receipt');
+    Route::get('/mi-cuenta/pagos/{receipt}/comprobante', [ReceiptController::class, 'proof'])->name('portal.receipt-proof');
     Route::get('/resumen', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/contactos', [WorkspaceController::class, 'customers'])->name('workspace.customers');
     Route::get('/catalogo', [WorkspaceController::class, 'products'])->name('workspace.products');
@@ -50,6 +51,8 @@ Route::middleware(['auth', 'auth.session', ActiveUser::class, RoleAccess::class]
     Route::resource('receipts', ReceiptController::class)->only(['index', 'create', 'store', 'show', 'edit', 'update']);
     Route::post('/receipts/{receipt}/apply', [ReceiptController::class, 'apply'])->name('receipts.apply');
     Route::post('/receipts/{receipt}/approve', [ReceiptController::class, 'approve'])->name('receipts.approve');
+    Route::get('/receipts/{receipt}/proof', [ReceiptController::class, 'proof'])->name('receipts.proof');
+    Route::post('/receipts/{receipt}/proof', [ReceiptController::class, 'attachProof'])->name('receipts.proof.store');
     Route::post('/receipts/{receipt}/reject', [ReceiptController::class, 'reject'])->name('receipts.reject');
     Route::post('/receipts/{receipt}/void', [ReceiptController::class, 'void'])->name('receipts.void');
     Route::get('/orders/create', [SalesController::class, 'create'])->name('orders.create');

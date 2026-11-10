@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Client;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Receipt;
 use App\Services\Audit;
@@ -13,10 +14,11 @@ use App\Support\Money;
 use App\Support\MonthlyDateFilter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReceiptController extends Controller
 {
@@ -44,15 +46,25 @@ class ReceiptController extends Controller
             $term = '%'.$r->input('q').'%';
             $query->where(fn ($q) => $q->where('reference', 'like', $term)->orWhere('id', $r->input('q'))->orWhereHas('client', fn ($c) => $c->where('name', 'like', $term)->orWhere('document', 'like', $term)));
         }
-        $receipts = $query->latest()->get();
-        $received = $receipts->whereNull('voided_at')->where('approval_status', 'approved')->sum(fn ($p) => Money::cents($p->amount));
-        $pending = $receipts->whereNull('voided_at')->where('approval_status', 'pending')->sum(fn ($p) => Money::cents($p->amount));
-        $credit = $receipts->sum('available_cents');
-        $receipts = $receipts->filter(fn ($p) => match ($r->input('state')) {
-            'pending' => ! $p->voided_at && $p->approval_status === 'pending', 'rejected' => ! $p->voided_at && $p->approval_status === 'rejected', 'credit' => $p->available_cents > 0,'partial' => $p->status === 'Parcialmente aplicado','applied' => ! $p->voided_at && $p->approval_status === 'approved' && $p->available_cents === 0,'void' => (bool) $p->voided_at,default => true
-        });
-        $page = max(1, $r->integer('page', 1));
-        $receipts = new LengthAwarePaginator($receipts->values()->forPage($page, 20), $receipts->count(), 20, $page, ['path' => $r->url(), 'query' => $r->query()]);
+        $confirmed = (clone $query)->whereNull('voided_at')->where('approval_status', 'approved');
+        $received = (int) (clone $confirmed)->toBase()->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) as cents')->value('cents');
+        $pending = (int) (clone $query)->whereNull('voided_at')->where('approval_status', 'pending')->toBase()->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) as cents')->value('cents');
+        $applied = (int) Payment::whereIn('receipt_id', (clone $confirmed)->select('receipts.id'))->whereNull('voided_at')->toBase()->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) as cents')->value('cents');
+        $credit = $received - $applied;
+        $state = $r->input('state');
+        if ($state === 'void') {
+            $query->whereNotNull('voided_at');
+        } elseif (in_array($state, ['pending', 'rejected'], true)) {
+            $query->whereNull('voided_at')->where('approval_status', $state);
+        } elseif (in_array($state, ['credit', 'partial', 'applied'], true)) {
+            $appliedSql = 'ROUND(COALESCE((SELECT SUM(payments.amount) FROM payments WHERE payments.receipt_id = receipts.id AND payments.voided_at IS NULL), 0), 2)';
+            $query->whereNull('voided_at')->where('approval_status', 'approved');
+            $query->whereRaw($appliedSql.($state === 'applied' ? ' = receipts.amount' : ' < receipts.amount'));
+            if ($state === 'partial') {
+                $query->whereRaw($appliedSql.' > 0');
+            }
+        }
+        $receipts = $query->latest()->paginate(20)->withQueryString();
 
         return view('receipts.index', compact('receipts', 'received', 'credit', 'pending', 'concessionaires'));
     }
@@ -114,8 +126,10 @@ class ReceiptController extends Controller
         Gate::authorize('view', $receipt);
         $receipt->load(['client.concessionaire', 'method', 'recorder', 'approver', 'sourceOrder', 'intendedInstallment', 'applications.order', 'applications.recorder', 'applications.allocations.installment']);
         $orders = $receipt->client->orders()->where('cancelled', false)->with(['payments', 'installments.allocations.payment'])->get()->filter(fn ($o) => $o->balance_cents > 0);
+        $approvalPreview = app(ReceiptService::class)->approvalPreview($receipt);
+        $duplicateReference = filled($receipt->reference) && Receipt::where('dealership_id', $receipt->dealership_id)->where('payment_method_id', $receipt->payment_method_id)->where('reference', $receipt->reference)->where('id', '!=', $receipt->id)->whereNull('voided_at')->where('approval_status', '!=', 'rejected')->exists();
 
-        return view('receipts.show', compact('receipt', 'orders', 'editing'));
+        return view('receipts.show', compact('receipt', 'orders', 'editing', 'approvalPreview', 'duplicateReference'));
     }
 
     public function update(Request $request, Receipt $receipt): RedirectResponse
@@ -155,7 +169,9 @@ class ReceiptController extends Controller
 
     public function approve(Request $request, Receipt $receipt, ReceiptService $service): RedirectResponse
     {
-        $service->approve($request->user(), $receipt);
+        Gate::authorize('review', $receipt);
+        $values = $request->validate(['expected_applied_cents' => 'nullable|integer|min:0']);
+        $service->approve($request->user(), $receipt, isset($values['expected_applied_cents']) ? (int) $values['expected_applied_cents'] : null);
 
         return back()->with('success', 'Pago aprobado. Se aplicó a la venta indicada y el importe restante quedó como saldo a favor del cliente.');
     }
@@ -167,5 +183,42 @@ class ReceiptController extends Controller
         $service->reject($request->user(), $receipt, $values['reason']);
 
         return back()->with('success', 'Pago rechazado. Se conserva el registro y el motivo; no modifica los saldos.');
+    }
+
+    public function attachProof(Request $request, Receipt $receipt): RedirectResponse
+    {
+        Gate::authorize('update', $receipt);
+        abort_unless($receipt->approval_status === 'pending' && ! $receipt->voided_at, 422);
+        $request->validate(['proof' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120']);
+        $path = $request->file('proof')->store('receipt-proofs', 'local');
+        $oldPath = null;
+        try {
+            DB::transaction(function () use ($request, $receipt, $path, &$oldPath): void {
+                Client::lockForUpdate()->findOrFail($receipt->client_id);
+                $locked = Receipt::lockForUpdate()->findOrFail($receipt->id);
+                Gate::authorize('update', $locked);
+                DealershipContext::forWrite($request->user(), null, $locked->dealership_id);
+                abort_unless($locked->approval_status === 'pending' && ! $locked->voided_at, 422);
+                $oldPath = $locked->proof_path;
+                $locked->update(['proof_path' => $path]);
+                Audit::log($request->user()->id, 'attach_proof', 'receipt', $locked->id);
+            }, 3);
+        } catch (\Throwable $error) {
+            Storage::disk('local')->delete($path);
+            throw $error;
+        }
+        if ($oldPath) {
+            Storage::disk('local')->delete($oldPath);
+        }
+
+        return back()->with('success', 'Comprobante adjuntado. Casa matriz puede revisarlo antes de aprobar.');
+    }
+
+    public function proof(Receipt $receipt): StreamedResponse
+    {
+        Gate::authorize('view', $receipt);
+        abort_unless($receipt->proof_path && Storage::disk('local')->exists($receipt->proof_path), 404);
+
+        return Storage::disk('local')->download($receipt->proof_path, 'REC-'.$receipt->id.'.'.pathinfo($receipt->proof_path, PATHINFO_EXTENSION), ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff']);
     }
 }

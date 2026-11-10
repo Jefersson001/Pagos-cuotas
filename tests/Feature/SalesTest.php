@@ -61,7 +61,7 @@ class SalesTest extends TestCase
         $this->get(route('clients.edit', $o->client))->assertForbidden();
         $this->post(route('orders.pay', $o), [])->assertForbidden();
         $this->get(route('orders.index'))->assertViewHas('orders', fn ($orders) => $orders->isEmpty());
-        $this->get(route('reports', ['export' => 'csv', 'user_id' => $a->id]))->assertStreamedContent("\xEF\xBB\xBFEmpresa,Pedido,Cliente,Responsable,Total,Abonado,Saldo,Estado\n");
+        $this->get(route('reports', ['export' => 'csv', 'user_id' => $a->id]))->assertStreamedContent("\xEF\xBB\xBFEmpresa,Venta,Cliente,Responsable,Total,Abonado,Saldo,Estado\n");
         $this->get(route('users'))->assertForbidden();
     }
 

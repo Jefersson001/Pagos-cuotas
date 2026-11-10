@@ -51,7 +51,7 @@ class ProductTest extends TestCase
         $product = Product::firstOrFail();
         $this->assertSame($admin->id, $product->user_id);
         $this->assertSame('Moto Bera 2026 Sincrónico Rojo', $product->name);
-        $this->assertSame('800.00', $product->cash_price);
+        $this->assertSame('1000.00', $product->cash_price);
         $this->assertSame(12, $product->installment_count);
         $this->get(route('products.edit', $product))->assertOk()->assertViewHas('product', fn ($product) => $product->model === 'Bera' && $product->product_type === 'vehicle')->assertSee('type="radio"', false);
         $this->put(route('products.update', $product), array_merge($v, ['model' => 'Bera nueva', 'initial_amount' => '150.00']))->assertSessionHasNoErrors();
@@ -66,8 +66,8 @@ class ProductTest extends TestCase
         $this->travelTo(now()->setDate(2026, 10, 28));
         $this->actingAs($this->user());
         $v = ['product_type' => 'vehicle', 'brand' => 'Bera', 'model' => 'BR 200', 'transmission' => 'automatico', 'year' => 2026, 'color' => 'negro', 'cash_price' => '800.00', 'price' => '1000.00', 'installment_count' => 12, 'initial_amount' => '200.00', 'active' => 1, 'dealership_id' => Dealership::first()->id];
-        foreach (['brand' => '', 'model' => '', 'transmission' => 'otro', 'year' => 2028, 'color' => 'azul', 'cash_price' => '0', 'price' => '0', 'installment_count' => 0] as $field => $value) {
-            $error = $field === 'price' ? 'initial_amount' : $field;
+        foreach (['brand' => '', 'model' => '', 'transmission' => 'otro', 'year' => 2028, 'color' => 'azul', 'price' => '0', 'installment_count' => 0] as $field => $value) {
+            $error = $field;
             $this->post(route('products.store'), array_merge($v, [$field => $value]))->assertSessionHasErrors($error);
         }
         $this->post(route('products.store'), array_merge($v, ['installment_count' => 121]))->assertSessionHasErrors('installment_count');
@@ -225,7 +225,7 @@ class ProductTest extends TestCase
         $user = $this->user('user', Dealership::first()->id);
         $client = $this->client($user);
         $product = Product::factory()->create(['dealership_id' => $client->dealership_id, 'price' => '100.00', 'initial_amount' => '30.00']);
-        $this->actingAs($user)->get(route('orders.create', ['client_id' => $client->id]))->assertOk()->assertDontSee('Descripción del pedido')->assertSee('Pedido');
+        $this->actingAs($user)->get(route('orders.create', ['client_id' => $client->id]))->assertOk()->assertDontSee('Descripción del pedido')->assertSee('Productos de la venta');
         $data = $this->data($client, [['product_id' => $product->id, 'quantity' => 2]]);
         $data['frequency'] = 'invalid';
         $this->from(route('orders.create'))->post(route('orders.store'), $data)->assertSessionHasErrors('frequency');
