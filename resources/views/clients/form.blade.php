@@ -1,23 +1,24 @@
 @extends('layouts.app')
-@section('title',$client->exists?'Editar concesionario':'Nuevo concesionario')
-@section('subtitle','Información del listado BERA CARS.')
+@section('title',$client->exists?($customerKind==='dealership'?'Editar concesionario':'Editar cliente'):($customerKind==='dealership'?'Nuevo concesionario':'Nuevo cliente'))
+@section('subtitle','Información de contacto y seguimiento comercial.')
 @section('content')
-<form method="post" action="{{ $client->exists?route('clients.update',$client):route('clients.store') }}" class="card form-card">
-@csrf @if($client->exists)@method('PUT')@endif
-<h2>Información del concesionario</h2>
-<div class="form-grid product-details-grid">
-<label>Tipo<select name="business_type">@foreach(['CONCESIONARIO','TALLER','CONCESIONARIO/ INTEGRAL'] as $type)<option value="{{ $type }}" @selected(old('business_type',$client->business_type??'CONCESIONARIO')===$type)>{{ $type }}</option>@endforeach</select></label>
-<label>Cliente<input name="name" value="{{ old('name',$client->name) }}" required maxlength="255"></label>
-<label>Condición<input name="condition" value="{{ old('condition',$client->condition) }}" maxlength="80"></label>
-<label>Fecha de inicio<input type="date" name="started_at" value="{{ old('started_at',$client->started_at?->format('Y-m-d')) }}"></label>
-<label>Representante legal<textarea name="legal_representative" maxlength="2000">{{ old('legal_representative',$client->legal_representative) }}</textarea></label>
-<label>Dirección<textarea name="address" maxlength="2000">{{ old('address',$client->address) }}</textarea></label>
-<label>Ciudad<input name="city" value="{{ old('city',$client->city) }}" maxlength="255"></label>
-<label>Estado<input name="state" value="{{ old('state',$client->state) }}" maxlength="255"></label>
-<label>RIF<input name="document" value="{{ old('document',$client->document) }}" maxlength="80"></label>
-<label>Teléfono<input name="phone" value="{{ old('phone',$client->phone) }}" maxlength="255" type="tel"></label>
-<label>Correo<input name="email" value="{{ old('email',$client->email) }}" maxlength="255"></label>
-</div>
-<div class="form-actions"><a href="{{ route('clients.index') }}" class="btn secondary">Volver</a><button class="btn primary"><i data-lucide="check"></i>Guardar concesionario</button></div>
-</form>
+@if($client->exists)<x-record-actions type="client" :record="$client" :edit="route('clients.edit',$client)" :view="route('clients.show',$client)" :read-only="request()->routeIs('clients.show')" />@endif
+<x-record-status :current="$client->exists?($client->active?'Activo':'Inactivo'):'Borrador'" />
+<form method="post" action="{{ $client->exists?route('clients.update',$client):route('clients.store') }}" class="card form-card" x-data="{customerKind:@js($customerKind)}">@csrf @if($client->exists)@method('PUT')@endif
+<input type="hidden" name="dealership_id" value="{{ old('dealership_id',$client->dealership_id??$selectedDealershipId) }}" @if(auth()->user()->isAdmin()&&!$client->exists) :disabled="customerKind==='dealership'" @endif>@if(old('duplicate_record'))<input type="hidden" name="duplicate_record" value="{{ old('duplicate_record') }}">@endif<h2>Información del cliente</h2><div class="form-grid product-details-grid">
+@if(auth()->user()->isHeadOffice())<input type="hidden" name="customer_kind" value="dealership"><label>Organización<input value="{{ auth()->user()->dealership->name }}" readonly></label>@elseif(auth()->user()->isAdmin()||!auth()->user()->concessionaire_id)<label>Tipo<select name="customer_kind" x-model="customerKind"><option value="person">Cliente</option><option value="dealership">Concesionario</option></select></label>@else<input type="hidden" name="customer_kind" value="person">@endif
+@if(auth()->user()->isAdmin()&&!$client->exists)<label x-show="customerKind==='dealership'" x-cloak>Organización<select name="dealership_id" :disabled="customerKind!=='dealership'" :required="customerKind==='dealership'"><option value="">Selecciona la organización</option>@foreach($organizations as $organization)<option value="{{ $organization->id }}" @selected((int)old('dealership_id',$selectedDealershipId)===$organization->id)>{{ $organization->name }}</option>@endforeach</select></label>@endif
+<label><span x-text="customerKind==='dealership'?'Cliente / Razón social':'Nombre y apellido'">{{ $customerKind==='dealership'?'Cliente / Razón social':'Nombre y apellido' }}</span><input name="name" value="{{ old('name',$client->name) }}" required maxlength="255"></label>
+<label x-show="customerKind==='dealership'" @if($customerKind!=='dealership') x-cloak @endif>Tipo de negocio<select name="business_type" :disabled="customerKind!=='dealership'">@foreach(['CONCESIONARIO','TALLER','CONCESIONARIO/ INTEGRAL'] as $type)<option @selected(old('business_type',$client->business_type??'CONCESIONARIO')===$type)>{{ $type }}</option>@endforeach</select></label>
+    @if(auth()->user()->isAdmin() || !auth()->user()->concessionaire_id)
+        <label x-show="customerKind==='person'" @if($customerKind!=='person') x-cloak @endif>Concesionario<select name="concessionaire_id" :disabled="customerKind!=='person'"><option value="">Sin concesionario</option>@foreach($concessionaires as $concessionaire)<option value="{{ $concessionaire->id }}" @selected(old('concessionaire_id',$selectedConcessionaireId)==$concessionaire->id)>{{ $concessionaire->name }}{{ $concessionaire->document?' · '.$concessionaire->document:'' }}{{ !$concessionaire->active?' (Inactivo)':'' }}</option>@endforeach</select></label>
+    @else
+        <input type="hidden" name="concessionaire_id" value="{{ $selectedConcessionaireId }}" :disabled="customerKind!=='person'">
+        <label x-show="customerKind==='person'" @if($customerKind!=='person') x-cloak @endif>Concesionario<input aria-label="Concesionario" value="{{ $concessionaires->firstWhere('id',$selectedConcessionaireId)?->name??'Concesionario no disponible' }}" readonly><small class="muted">Asignado automáticamente según tu usuario.</small></label>
+    @endif
+<label x-show="customerKind==='dealership'" @if($customerKind!=='dealership') x-cloak @endif>Condición<input name="condition" value="{{ old('condition',$client->condition) }}" maxlength="80" :disabled="customerKind!=='dealership'"></label><label x-show="customerKind==='dealership'" @if($customerKind!=='dealership') x-cloak @endif>Fecha de inicio<input type="date" name="started_at" value="{{ old('started_at',$client->started_at?->format('Y-m-d')) }}" :disabled="customerKind!=='dealership'"></label><label x-show="customerKind==='dealership'" @if($customerKind!=='dealership') x-cloak @endif>Representante legal<textarea name="legal_representative" maxlength="2000" :disabled="customerKind!=='dealership'">{{ old('legal_representative',$client->legal_representative) }}</textarea></label>
+<label>Dirección<textarea name="address" maxlength="2000">{{ old('address',$client->address) }}</textarea></label><label>Ciudad<input name="city" value="{{ old('city',$client->city) }}" maxlength="255"></label><label>Estado / Región<input name="state" value="{{ old('state',$client->state) }}" maxlength="255"></label>
+<label><span x-text="customerKind==='dealership'?'RIF':'Identificación'">{{ $customerKind==='dealership'?'RIF':'Identificación' }}</span><input name="document" value="{{ old('document',$client->document) }}" maxlength="80"></label><label>Teléfono<input name="phone" type="tel" value="{{ old('phone',$client->phone) }}" maxlength="255"></label><label>Correo<input name="email" value="{{ old('email',$client->email) }}" maxlength="255"></label>
+<label>WhatsApp (opcional)<input name="whatsapp" value="{{ old('whatsapp',$client->whatsapp) }}" maxlength="80" placeholder="+58 412 1234567"></label><label>Estado<select name="active"><option value="1" @selected(old('active',$client->active??true))>Activo</option><option value="0" @selected(!old('active',$client->active??true))>Inactivo</option></select></label><label class="full">Observaciones<textarea name="notes" maxlength="3000">{{ old('notes',$client->notes) }}</textarea></label>
+</div><div class="form-actions"><a class="btn secondary" href="{{ route('clients.index') }}">Volver</a><button class="btn primary">Guardar cliente</button></div></form>
 @endsection

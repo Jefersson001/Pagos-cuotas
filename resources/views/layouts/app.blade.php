@@ -1,23 +1,42 @@
-<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="csrf-token" content="{{ csrf_token() }}"><title>@yield('title','Resumen') · Cuota</title>@vite(['resources/css/app.css','resources/js/app.js'])</head>
-<body x-data="{menu:false,dark:localStorage.getItem('dark')==='true'}" :class="{'dark-mode':dark}">
-<aside class="sidebar" :class="{'open':menu}" aria-label="Menú principal"><button type="button" class="sidebar-edge" aria-label="Mostrar menú lateral" title="Mostrar menú"><i data-lucide="chevron-right"></i></button><button type="button" class="icon-button sidebar-close" aria-label="Cerrar menú" @click="menu=false">×</button><a href="{{ route('dashboard') }}" class="brand"><span class="brand-icon"><i data-lucide="layers"></i></span> cuota<span class="brand-dot">.</span></a><p class="nav-label">ESPACIO DE TRABAJO</p>
-@foreach([['dashboard','layout-dashboard','Resumen'],['orders.index','shopping-bag','Ventas programadas'],['receipts.index','wallet','Pagos'],['collections','calendar-clock','Cobranzas'],['reports','chart-no-axes-combined','Reportes']] as [$route,$icon,$label])<a class="nav-item {{ request()->routeIs($route) || ($route==='orders.index' && request()->routeIs('orders.*')) || ($route==='receipts.index' && request()->routeIs('receipts.*')) ? 'selected':'' }}" href="{{ route($route) }}"><i data-lucide="{{ $icon }}"></i>{{ $label }}</a>@endforeach
-<p class="nav-label mt-8">CONFIGURACIÓN</p>
-<div class="settings-nav" x-data="{expanded:@js(request()->routeIs('products.*','clients.*','payment-methods.*','dealerships.*','users','users.*','audit'))}">
-    <button type="button" class="nav-item settings-toggle {{ request()->routeIs('products.*','clients.*','payment-methods.*','dealerships.*','users','users.*','audit')?'selected':'' }}" @click="expanded=!expanded" :aria-expanded="expanded" aria-controls="settings-submenu"><i data-lucide="settings-2"></i><span>Configuración</span><span class="submenu-chevron" :class="{'is-open':expanded}"><i data-lucide="chevron-right"></i></span></button>
-    <nav id="settings-submenu" class="settings-submenu" x-show="expanded" x-cloak aria-label="Configuración">
-        @foreach([['products.index','layers','Productos','products.*'],['clients.index','users-round','Concesionarios','clients.*']] as [$route,$icon,$label,$pattern])<a class="nav-item {{ request()->routeIs($pattern)?'selected':'' }}" href="{{ route($route) }}"><i data-lucide="{{ $icon }}"></i>{{ $label }}</a>@endforeach
-        @if(auth()->user()->canManageUsers())
-        @foreach([['payment-methods.index','wallet','Métodos de pago'],['users','user-cog','Usuarios'],['audit','shield-check','Auditoría']] as [$route,$icon,$label])
-        <a class="nav-item {{ request()->routeIs($route) || ($route==='users' && request()->routeIs('users.*')) || ($route==='payment-methods.index' && request()->routeIs('payment-methods.*'))?'selected':'' }}" href="{{ route($route) }}"><i data-lucide="{{ $icon }}"></i>{{ $label }}</a>
-        @endforeach
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="csrf-token" content="{{ csrf_token() }}"><meta name="theme-color" content="#101010"><title>@yield('title','Inicio') · Cuota</title>@vite(['resources/css/app.css','resources/js/app.js'])</head>
+<body @class(['workspace-shell', 'workspace-home' => request()->routeIs('home')]) x-data="{dark:localStorage.getItem('cuotas-dark')==='true'}" :class="{'dark-mode':dark}">
+@php
+$workspaceModules=auth()->user()->workspaceModules();
+$isConcessionaire=request()->routeIs('concessionaires.*') || (isset($client) && $client->customer_kind==='dealership');
+$activeModule=collect($workspaceModules)->first(fn($module)=>request()->routeIs(...$module['patterns']));
+@endphp
+<header class="workspace-header"><div class="workspace-header-inner">
+<div class="workspace-header-left"><a href="{{ route('home') }}" class="brand"><span class="brand-icon"><i data-lucide="layers"></i></span><span class="workspace-brand-copy">cuota<span class="brand-dot">.</span>@if(request()->routeIs('home'))<small>GESTIÓN DE VENTAS Y PAGOS</small>@endif</span></a><a href="{{ route('home') }}" class="workspace-home-link" aria-label="Ir al inicio"><i data-lucide="layers"></i><span>Inicio</span></a>
+@if($activeModule)<span class="workspace-module-title">{{ $activeModule['name'] }}</span>@endif</div>
+<div class="workspace-header-right"><span class="workspace-date">{{ now()->format('d/m/Y') }}</span><button class="icon-button" @click="dark=!dark;localStorage.setItem('cuotas-dark',dark)" aria-label="Cambiar tema"><i data-lucide="sun-moon"></i></button>
+<details class="workspace-user"><summary><span class="avatar small">{{ mb_substr(auth()->user()->name,0,1) }}</span><span>{{ auth()->user()->name }}</span><i data-lucide="chevron-right"></i></summary><div class="workspace-user-panel"><strong>{{ auth()->user()->name }}</strong><small>{{ auth()->user()->role_label }}</small><a href="{{ route(auth()->user()->isCustomer()?'portal.account':'workspace.settings') }}">Mi cuenta y ajustes</a><form method="post" action="{{ route('logout') }}">@csrf<button type="submit">Cerrar sesión</button></form></div></details></div>
+</div></header>
+@if($activeModule)<div class="workspace-navigation"><div class="workspace-navigation-inner"><details class="workspace-switcher"><summary><i data-lucide="layers"></i>Módulos</summary><div class="workspace-module-menu">@foreach($workspaceModules as $module)<a href="{{ route($module['route']) }}"><i data-lucide="{{ $module['icon'] }}"></i>{{ $module['name'] }}</a>@endforeach</div></details>
+<nav aria-label="Secciones de {{ $activeModule['name'] }}">
+@foreach($activeModule['children']??[['name'=>$activeModule['name'],'route'=>$activeModule['route']]] as $child)
+    @if((empty($child['system'])||auth()->user()->isAdmin())&&(empty($child['manage'])||auth()->user()->canManageUsers())&&(empty($child['business'])||auth()->user()->canManageBusiness())&&(empty($child['organization'])||auth()->user()->canManageOrganizations()))
+        @if(!empty($child['children']))
+            <details class="workspace-nav-group" x-data @click.outside="$el.removeAttribute('open')" @keydown.escape="$el.removeAttribute('open');$el.querySelector('summary').focus()">
+                <summary @class(['is-active'=>request()->routeIs(...$child['patterns'])])>{{ $child['name'] }}<i data-lucide="chevron-right" aria-hidden="true"></i></summary>
+                <div class="workspace-nav-submenu">
+                    @foreach($child['children'] as $entry)
+                        @if(empty($entry['business'])||auth()->user()->canManageBusiness())
+                            <a href="{{ route($entry['route']) }}" @class(['is-active'=>request()->routeIs(\Illuminate\Support\Str::beforeLast($entry['route'],'.').'.*')])>{{ $entry['name'] }}</a>
+                        @endif
+                    @endforeach
+                </div>
+            </details>
+        @else
+            <a href="{{ route($child['route']) }}" @class(['is-active'=>request()->routeIs($child['route']) || ($child['route']==='concessionaires.index'&&$isConcessionaire) || ($child['route']==='products.index'&&request()->routeIs('products.*')) || ($child['route']==='orders.index'&&request()->routeIs('orders.*')) || ($child['route']==='receipts.index'&&request()->routeIs('receipts.*')) || ($child['route']==='users'&&request()->routeIs('users.*')) || ($child['route']==='clients.index'&&request()->routeIs('clients.*','concessionaires.*'))])>{{ $child['name'] }}</a>
         @endif
-    </nav>
-</div>
-<div class="sidebar-bottom"><div class="profile"><span class="avatar">{{ mb_substr(auth()->user()->name,0,1) }}</span><div><strong>{{ auth()->user()->name }}</strong><small>{{ auth()->user()->isAdmin()?'Administrador general':(auth()->user()->managesDealership()?'Administrador de empresa':'Asesor de ventas') }}</small></div><form method="post" action="{{ route('logout') }}">@csrf<button class="icon-button" title="Cerrar sesión"><i data-lucide="log-out"></i></button></form></div></div></aside>
-<div class="main-shell"><header class="topbar"><div class="flex items-center gap-3"><button class="icon-button mobile-menu" @click="menu=!menu" aria-label="Abrir menú"><i data-lucide="menu"></i></button><span class="breadcrumb">{{ $businessName }} <span>/</span> <strong>@yield('title','Resumen')</strong></span></div><div class="flex items-center gap-4"><span class="today">{{ now()->format('d/m/Y') }}</span><button class="icon-button" @click="dark=!dark;localStorage.setItem('dark',dark)" aria-label="Cambiar tema"><i data-lucide="sun-moon"></i></button><span class="avatar small">{{ mb_substr(auth()->user()->name,0,1) }}</span></div></header>
-<main>@if($currentDealership && !$currentDealership->active)<div class="notice error" data-dealership-warning>Concesionario inactivo. Puedes consultar su historial; las nuevas operaciones están bloqueadas.</div>@endif<div class="page-heading"><div><p class="eyebrow">CONTROL SIMPLE. NEGOCIO EN ORDEN.</p><h1>@yield('title','Resumen')</h1><p class="subtitle">@yield('subtitle','Una visión clara de tus ventas y pagos, en un solo lugar.')</p></div><div class="page-actions" data-page-actions>@yield('actions')</div></div>
+    @endif
+@endforeach
+</nav></div></div>@endif
+<main class="workspace-main">
+@if($currentDealership && !$currentDealership->active)<div class="notice error" data-dealership-warning>La empresa está inactiva. Puedes consultar el historial.</div>@endif
+@if(!request()->routeIs('home'))<div class="page-heading"><div><a class="workspace-back" href="{{ route('home') }}">← Volver al inicio</a><h1>@yield('title')</h1><p class="subtitle">@yield('subtitle')</p></div><div class="page-actions" data-page-actions>@yield('actions')</div></div>@endif
 @if(session('success'))<div class="notice success" role="status"><i data-lucide="circle-check"></i>{{ session('success') }}</div>@endif
 @if($errors->any())<div class="notice error" role="alert"><div><strong>Revisa la información</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div></div>@endif
 @yield('content')
-<footer>Cuota · Ventas que avanzan, cuentas claras.<span>Panel de gestión</span></footer></main></div>@stack('scripts')</body></html>
+<footer>Cuota · Ventas que avanzan, cuentas claras.<span>{{ now()->year }} · Gestión de ventas y pagos</span></footer>
+</main>@stack('scripts')</body></html>

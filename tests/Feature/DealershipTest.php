@@ -39,6 +39,7 @@ class DealershipTest extends TestCase
 
         $order = app(SalesService::class)->create($owner, ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'description' => $name, 'items' => [['description' => 'Vehículo', 'quantity' => 1, 'unit_price' => '1000.00']], 'initial_amount' => '100.00', 'payment_method_id' => $method->id, 'installment_count' => 9, 'frequency' => 'monthly', 'first_due' => '2025-01-01']);
         app(SalesService::class)->pay($owner, $order->id, ['token' => (string) Str::uuid(), 'amount' => '100.00', 'payment_method_id' => $method->id, 'installment_id' => $order->installments->firstWhere('number', 0)->id]);
+        $this->approvePendingReceipts();
 
         return $order->fresh();
     }
@@ -82,7 +83,7 @@ class DealershipTest extends TestCase
         $this->delete(route('payment-methods.destroy', $method))->assertForbidden();
         $this->get(route('dealerships.index'))->assertForbidden();
         $this->post(route('dealership-context'), ['dealership_id' => $b->id])->assertForbidden();
-        foreach (['orders.index', 'clients.index', 'collections', 'dashboard'] as $route) {
+        foreach (['orders.index', 'clients.index', 'collections', 'workspace.sales'] as $route) {
             $this->get(route($route, ['dealership_id' => $b->id, 'user_id' => $foreign->user_id]))->assertOk()->assertDontSee('CLIENTE EXCLUSIVO B');
         }
     }
@@ -111,8 +112,8 @@ class DealershipTest extends TestCase
         $own = $this->sale($this->user('user', $a), 'CLIENTE LOCAL A');
         $other = $this->sale($this->user('user', $b), 'CLIENTE EXCLUSIVO B');
         $this->actingAs($this->user('admin'))->get(route('orders.index'))->assertSee('CLIENTE LOCAL A')->assertSee('CLIENTE EXCLUSIVO B');
-        $this->post(route('dealership-context'), ['dealership_id' => $a->id])->assertRedirect(route('dashboard'));
-        foreach (['orders.index', 'clients.index', 'collections', 'dashboard'] as $route) {
+        $this->post(route('dealership-context'), ['dealership_id' => $a->id])->assertRedirect(route('workspace.sales'));
+        foreach (['orders.index', 'clients.index', 'collections', 'workspace.sales'] as $route) {
             $this->get(route($route))->assertOk()->assertSee('CLIENTE LOCAL A')->assertDontSee('CLIENTE EXCLUSIVO B');
         }
         $response = $this->get(route('reports', ['export' => 'csv']));
@@ -133,30 +134,22 @@ class DealershipTest extends TestCase
         $this->get(route('orders.index'))->assertSee('CLIENTE EXCLUSIVO B');
     }
 
-    public function test_local_user_management_cannot_escalate_roles_or_move_users(): void
+    public function test_local_manager_cannot_create_read_edit_or_duplicate_users(): void
     {
-        $a = Dealership::factory()->create();
-        $b = Dealership::factory()->create();
-        $manager = $this->user('dealership_admin', $a);
-        $other = $this->user('user', $b);
-        $global = $this->user('admin');
-        $this->actingAs($manager)->get(route('users'))->assertOk()->assertDontSee($other->email)->assertDontSee($global->email);
-        $this->get(route('users'))->assertSee(route('users.create'), false)->assertDontSee('name="password"', false);
-        $this->get(route('users.create'))->assertOk();
-        $this->get(route('users.edit', $manager))->assertOk();
-        $this->get(route('users.edit', $other))->assertForbidden();
-        $this->get(route('users.edit', $global))->assertForbidden();
-        $data = ['name' => 'Nuevo asesor', 'username' => 'new_advisor', 'email' => 'new@example.test', 'password' => 'secure-password-123', 'role_id' => Role::where('name', 'user')->first()->id, 'active' => 1, 'dealership_id' => $b->id];
-        $this->post(route('users.store'), $data)->assertSessionHasNoErrors();
-        $this->assertDatabaseHas('users', ['email' => 'new@example.test', 'dealership_id' => $a->id]);
-        $data['email'] = 'attack@example.test';
-        $data['username'] = 'attack';
-        $data['role_id'] = $global->role_id;
+        $company = Dealership::factory()->create();
+        $manager = $this->user('dealership_admin', $company);
+        $other = $this->user('user', $company);
+        $this->actingAs($manager);
+        foreach (['users', 'users.create', 'users.show', 'users.edit'] as $route) {
+            $this->get(route($route, $other))->assertForbidden();
+        }
+        $data = ['name' => 'Cuenta rechazada', 'username' => 'forbidden_account', 'email' => 'forbidden@example.test', 'password' => 'secure-password-123', 'role_id' => $manager->role_id, 'dealership_id' => $company->id, 'active' => 1];
         $this->post(route('users.store'), $data)->assertForbidden();
-        $this->assertDatabaseMissing('users', ['email' => 'attack@example.test']);
         $this->put(route('users.update', $other), $this->userData($other))->assertForbidden();
-        $this->put(route('users.update', $global), $this->userData($global))->assertForbidden();
-        $this->put(route('users.update', $manager), array_replace($this->userData($manager), ['role_id' => Role::where('name', 'user')->first()->id]))->assertSessionHasErrors('role_id');
+        $this->get(route('records.duplicate', ['type' => 'user', 'id' => $other->id]))->assertForbidden();
+        $this->delete(route('records.destroy', ['type' => 'user', 'id' => $other->id]))->assertForbidden();
+        $this->assertDatabaseMissing('users', ['username' => 'forbidden_account']);
+        $this->assertModelExists($other);
     }
 
     public function test_client_owner_and_dealership_cannot_be_forged_or_cross_assigned(): void
@@ -189,7 +182,7 @@ class DealershipTest extends TestCase
         $manager = $this->user('dealership_admin', $a);
         $this->actingAs($manager)->get(route('audit'))->assertOk()->assertSee('LOCAL_EVENT')->assertDontSee('FOREIGN_EVENT');
         DB::table('dealership_settings')->insert(['dealership_id' => $a->id, 'key' => 'business_name', 'value' => 'Nombre anterior']);
-        $this->get(route('dashboard'))->assertOk()->assertViewHas('businessName', $a->name);
+        $this->get(route('workspace.sales'))->assertOk()->assertViewHas('businessName', $a->name);
         $this->post(route('payment-methods.store'), ['name' => 'Método exclusivo A', 'active' => 1])->assertSessionHasNoErrors();
         $this->actingAs($this->user('dealership_admin', $b))->get(route('payment-methods.index'))->assertOk()->assertDontSee('Método exclusivo A');
         $this->post(route('payment-methods.store'), ['name' => 'Método exclusivo A', 'active' => 1])->assertSessionHasNoErrors();
@@ -207,19 +200,21 @@ class DealershipTest extends TestCase
         $this->assertSame(1, $order->payments()->count());
     }
 
-    public function test_local_manager_can_receive_and_void_payments_with_audit(): void
+    public function test_local_manager_receives_and_administrator_voids_approved_payments_with_audit(): void
     {
         $dealer = Dealership::factory()->create();
         $owner = $this->user('user', $dealer);
         $order = $this->sale($owner, 'Cliente A');
         $manager = $this->user('dealership_admin', $dealer);
         $payment = app(SalesService::class)->pay($manager, $order->id, ['token' => (string) Str::uuid(), 'amount' => '100.00', 'payment_method_id' => $order->payments->first()->payment_method_id]);
+        $this->approvePendingReceipts();
         $this->assertSame($dealer->id, $payment->dealership_id);
         $this->assertSame($manager->id, $payment->recorded_by);
-        $this->actingAs($manager)->post(route('payments.void', $payment), ['reason' => 'Pago duplicado por error'])->assertSessionHasNoErrors();
+        $this->actingAs($manager)->post(route('receipts.void', $payment), ['reason' => 'Pago duplicado por error'])->assertForbidden();
+        $this->actingAs($this->user('admin'))->post(route('receipts.void', $payment), ['reason' => 'Pago duplicado por error'])->assertSessionHasNoErrors();
         $this->assertNotNull($payment->fresh()->voided_at);
         $this->assertSame(90000, $order->fresh()->balance_cents);
-        $this->assertDatabaseHas('audit_logs', ['action' => 'void', 'entity_id' => $payment->id, 'dealership_id' => $dealer->id]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'void_receipt', 'entity_id' => $payment->id, 'dealership_id' => $dealer->id]);
     }
 
     public function test_inactive_dealership_blocks_login_existing_sessions_and_new_payments(): void
@@ -228,9 +223,9 @@ class DealershipTest extends TestCase
         $owner = $this->user('user', $dealer);
         $owner->update(['password' => 'secure-password-123']);
         $order = $this->sale($owner, 'Cliente A');
-        $this->actingAs($owner)->get(route('dashboard'))->assertOk();
+        $this->actingAs($owner)->get(route('workspace.sales'))->assertOk();
         $dealer->update(['active' => false]);
-        $this->get(route('dashboard'))->assertRedirect(route('login'));
+        $this->get(route('workspace.sales'))->assertRedirect(route('login'));
         $this->assertGuest();
         $this->post(route('login'), ['email' => $owner->email, 'password' => 'secure-password-123'])->assertSessionHasErrors('email');
         $this->assertGuest();
@@ -241,12 +236,12 @@ class DealershipTest extends TestCase
 
     public function test_global_admin_creates_and_edits_dealership_and_keeps_existing_data(): void
     {
-        $this->actingAs($this->user('admin'))->get(route('dealerships.index'))->assertRedirect(route('clients.index'));
-        $this->get(route('dealerships.create'))->assertRedirect(route('clients.create'));
+        $this->actingAs($this->user('admin'))->get(route('dealerships.index'))->assertOk();
+        $this->get(route('dealerships.create'))->assertOk();
         $this->post(route('dealerships.store'), ['name' => 'Bera Caracas', 'code' => 'BERA-CCS', 'active' => 1])->assertSessionHasNoErrors()->assertRedirect();
         $dealer = Dealership::where('code', 'BERA-CCS')->firstOrFail();
         $this->assertSame(6, PaymentMethod::where('dealership_id', $dealer->id)->count());
-        $this->get(route('dealerships.edit', $dealer))->assertRedirect(route('clients.index'));
+        $this->get(route('dealerships.edit', $dealer))->assertOk();
         $this->put(route('dealerships.update', $dealer), ['name' => 'Bera Caracas Centro', 'code' => 'BERA-CCS', 'active' => 0])->assertSessionHasNoErrors();
         $this->assertFalse($dealer->fresh()->active);
         $this->assertDatabaseHas('dealerships', ['code' => 'PRINCIPAL', 'active' => true]);

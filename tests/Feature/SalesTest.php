@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Client;
 use App\Models\Order;
 use App\Models\PaymentMethod;
+use App\Models\Receipt;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ReportService;
@@ -44,7 +45,10 @@ class SalesTest extends TestCase
 
     private function pay(User $u, Order $o, string $amount, array $extra = [])
     {
-        return app(SalesService::class)->pay($u, $o->id, array_replace(['token' => (string) Str::uuid(), 'amount' => $amount, 'payment_method_id' => PaymentMethod::first()->id], $extra));
+        $result = app(SalesService::class)->pay($u, $o->id, array_replace(['token' => (string) Str::uuid(), 'amount' => $amount, 'payment_method_id' => PaymentMethod::first()->id], $extra));
+        $this->approvePendingReceipts();
+
+        return $result instanceof Receipt ? $result->applications()->firstOrFail() : $result;
     }
 
     public function test_user_cannot_read_pay_edit_or_export_another_users_records(): void
@@ -56,8 +60,8 @@ class SalesTest extends TestCase
         $this->get(route('clients.show', $o->client))->assertForbidden();
         $this->get(route('clients.edit', $o->client))->assertForbidden();
         $this->post(route('orders.pay', $o), [])->assertForbidden();
-        $this->get(route('orders.index'))->assertDontSee('Equipo');
-        $this->get(route('reports', ['export' => 'csv', 'user_id' => $a->id]))->assertStreamedContent("\xEF\xBB\xBFEmpresa,Pedido,Concesionario,Responsable,Total,Abonado,Saldo,Estado\n");
+        $this->get(route('orders.index'))->assertViewHas('orders', fn ($orders) => $orders->isEmpty());
+        $this->get(route('reports', ['export' => 'csv', 'user_id' => $a->id]))->assertStreamedContent("\xEF\xBB\xBFEmpresa,Pedido,Cliente,Responsable,Total,Abonado,Saldo,Estado\n");
         $this->get(route('users'))->assertForbidden();
     }
 
@@ -178,7 +182,7 @@ class SalesTest extends TestCase
         $u = $this->actor(true);
         $o = $this->sale($u);
         $this->actingAs($u);
-        foreach (['dashboard', 'clients.index', 'clients.create', 'orders.index', 'orders.create', 'collections', 'reports', 'users', 'audit'] as $route) {
+        foreach (['workspace.sales', 'clients.index', 'clients.create', 'orders.index', 'orders.create', 'collections', 'reports', 'users', 'audit'] as $route) {
             $this->get(route($route))->assertOk();
         }$this->get(route('clients.show', $o->client))->assertOk();
         $this->get(route('clients.edit', $o->client))->assertOk();

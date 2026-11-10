@@ -29,13 +29,15 @@ class SalesService
             Gate::forUser($actor)->authorize('view', $client);
             DealershipContext::forWrite($actor, null, $client->dealership_id);
             if (! $client->active) {
-                $this->fail('El concesionario está inactivo.');
+                $this->fail('El cliente está inactivo.');
             }
             if ($old = Order::where('token', $data['token'])->first()) {
                 Gate::forUser($actor)->authorize('view', $old);
 
                 return $old;
             }
+            $priceAdjustments = [];
+            $directPaymentTotal = 0;
             if (collect($data['items'])->contains(fn ($item) => isset($item['product_id']))) {
                 $ids = array_column($data['items'], 'product_id');
                 $products = Product::whereIn('id', $ids)->where('dealership_id', $client->dealership_id)->where('active', true)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
@@ -44,13 +46,30 @@ class SalesService
                 foreach ($data['items'] as $item) {
                     $product = $products->get($item['product_id'] ?? null);
                     if (! $product) {
-                        $this->fail('Selecciona productos activos del mismo concesionario que el concesionario.');
+                        $this->fail('Selecciona productos activos de la misma empresa.');
                     }
-                    $initialTotal += Money::cents($product->initial_amount) * (int) $item['quantity'];
+                    if (! empty($item['catalog_version']) && ! hash_equals($product->catalog_version, $item['catalog_version'])) {
+                        $this->fail('El producto cambió mientras preparabas la venta. Vuelve a seleccionarlo para revisar sus importes.');
+                    }
+                    $unitPrice = Money::cents($product->price);
+                    $initialAmount = $product->pay_in_installments ? Money::cents($product->initial_amount) : 0;
+                    if (! empty($item['use_custom_amounts'])) {
+                        $unitPrice = Money::cents($item['unit_price'] ?? null);
+                        $initialAmount = $product->pay_in_installments ? Money::cents($item['initial_amount'] ?? null) : 0;
+                        if ($unitPrice <= 0 || $initialAmount > $unitPrice) {
+                            $this->fail('El precio unitario debe ser mayor a cero y la inicial por unidad no puede superar ese precio.');
+                        }
+                        $priceAdjustments[] = ['product_id' => $product->id, 'catalog_unit_price' => $product->price,
+                            'catalog_initial_amount' => $product->required_initial_amount, 'unit_price' => Money::decimal($unitPrice), 'initial_amount' => Money::decimal($initialAmount)];
+                    }
+                    $initialTotal += $initialAmount * (int) $item['quantity'];
+                    if (! $product->pay_in_installments) {
+                        $directPaymentTotal += $unitPrice * (int) $item['quantity'];
+                    }
                     if ($initialTotal > 999999999999) {
                         $this->fail('La inicial total supera el importe permitido.');
                     }
-                    $catalogItems[] = ['product_id' => $product->id, 'description' => $product->name, 'quantity' => $item['quantity'], 'unit_price' => $product->price, 'initial_amount' => $product->initial_amount];
+                    $catalogItems[] = ['product_id' => $product->id, 'description' => $product->name, 'quantity' => $item['quantity'], 'unit_price' => Money::decimal($unitPrice), 'initial_amount' => Money::decimal($initialAmount)];
                 }
                 $data['items'] = $catalogItems;
                 $data['initial_amount'] = Money::decimal($initialTotal);
@@ -73,7 +92,7 @@ class SalesService
             if ($initial > $total) {
                 $this->fail('La inicial supera el total.');
             }
-            $balance = $total - $initial;
+            $balance = $total - $initial - $directPaymentTotal;
             $count = (int) $data['installment_count'];
             $schedule = [];
             if ($balance > 0) {
@@ -106,18 +125,23 @@ class SalesService
                 }
             }
             $order = Order::create(['token' => $data['token'], 'user_id' => $client->user_id, 'dealership_id' => $client->dealership_id, 'client_id' => $client->id, 'description' => $data['description'], 'total' => Money::decimal($total), 'initial_amount' => Money::decimal($initial), 'frequency' => $data['frequency'], 'notes' => $data['notes'] ?? null]);
-            $order->items()->createMany($items);
+            $createdItems = $order->items()->createMany($items);
+            foreach ($createdItems as $item) {
+                if (isset($products) && $item->product_id && ! $products->get($item->product_id)->pay_in_installments) {
+                    $order->installments()->create(['number' => null, 'order_item_id' => $item->id, 'due_date' => today()->toDateString(), 'amount' => Money::decimal(Money::cents($item->unit_price) * $item->quantity)]);
+                }
+            }
             $order->installments()->createMany($schedule);
             if ($initial > 0) {
                 $order->installments()->create(['number' => 0, 'due_date' => today()->toDateString(), 'amount' => Money::decimal($initial)]);
             }
-            Audit::log($actor->id, 'create', 'order', $order->id, ['total' => $order->total]);
+            Audit::log($actor->id, 'create', 'order', $order->id, ['total' => $order->total] + ($priceAdjustments ? ['price_adjustments' => $priceAdjustments] : []));
 
             return $order;
         }, 3);
     }
 
-    public function pay(User $actor, int $orderId, array $data): Payment
+    public function pay(User $actor, int $orderId, array $data): Payment|Receipt
     {
         $clientId = Order::findOrFail($orderId)->client_id;
 
@@ -133,12 +157,20 @@ class SalesService
 
                 return $old;
             }
+            if ($old = Receipt::where('token', $data['token'])->first()) {
+                Gate::forUser($actor)->authorize('view', $old);
+                if ($old->source_order_id !== $orderId || Money::cents($old->amount) !== Money::cents($data['amount']) || (int) $old->intended_installment_id !== (int) ($data['installment_id'] ?? 0)) {
+                    $this->fail('El comprobante ya fue utilizado con otros datos.');
+                }
+
+                return $old;
+            }
             $amount = Money::cents($data['amount']);
             $receipts = Receipt::where('client_id', $clientId)->whereNull('voided_at')->orderBy('id')->lockForUpdate()->with('applications')->get();
             $credit = $receipts->sum('available_cents');
             $useCredit = ($data['payment_source'] ?? 'new') === 'credit';
             if ($credit > 0 && ! $useCredit && empty($data['new_payment'])) {
-                $this->fail('El concesionario tiene saldo a favor. Utiliza ese saldo o marca Nuevo pago para registrar dinero nuevo.');
+                $this->fail('El cliente tiene saldo a favor. Utiliza ese saldo o marca Nuevo pago para registrar dinero nuevo.');
             }
             if ($useCredit && ($amount <= 0 || $amount > $credit)) {
                 $this->fail('El monto a aplicar debe ser mayor a cero y no superar el saldo a favor disponible. Actualiza la venta para consultar el saldo actual.');
@@ -174,6 +206,9 @@ class SalesService
                 return $first;
             }
             $receipt = $service->receive($actor, $clientId, array_merge($data, ['source_order_id' => $orderId]));
+            if ($receipt->approval_status !== 'approved') {
+                return $receipt;
+            }
 
             return $service->apply($actor, $receipt, $orderId, array_merge($data, ['amount' => Money::decimal(min($amount, $limit))]));
         }, 3);
@@ -181,7 +216,7 @@ class SalesService
 
     public function void(User $actor, Payment $payment, string $reason): void
     {
-        abort_unless($actor->canManageUsers() && $actor->canAccessRecord($payment), 403);
+        abort_unless($actor->isAdmin() && $actor->canAccessRecord($payment), 403);
         $clientId = Order::findOrFail($payment->order_id)->client_id;
         DB::transaction(function () use ($actor, $payment, $reason, $clientId) {
             Client::lockForUpdate()->findOrFail($clientId);

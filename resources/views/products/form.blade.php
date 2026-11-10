@@ -1,46 +1,33 @@
 @extends('layouts.app')
-@section('title',$product->exists?'Editar producto':'Nuevo producto')
-@section('subtitle','Características del vehículo y condiciones de venta.')
+@section('title',$product->exists?(($readOnly??false)?$product->name:'Editar producto'):'Nuevo producto')
+@section('subtitle','Un catálogo que se adapta a lo que vendes.')
 @section('actions')<a class="btn secondary" href="{{ route('products.index') }}">Volver a la lista</a>@endsection
 @section('content')
+@if($product->exists)<x-record-actions type="product" :record="$product" :edit="route('products.edit',$product)" :view="route('products.show',$product)" :read-only="$readOnly??false" :can-edit="auth()->user()->can('update',$product)" :can-delete="auth()->user()->can('delete',$product)" />@endif
+<x-record-status :current="$product->exists?($product->active?'Activo':'Inactivo'):'Borrador'" />
 @php
-$vehicleImages = collect(config('product_images', []))->map(fn($vehicle) => ['label' => $vehicle['label'], 'aliases' => $vehicle['aliases'] ?? [], 'colors' => collect($vehicle['colors'])->map(fn($path) => asset($path))->all()])->all();
+$vehicleImages=collect(config('product_images',[]))->map(fn($vehicle)=>['label'=>$vehicle['label'],'aliases'=>$vehicle['aliases']??[],'colors'=>collect($vehicle['colors'])->map(fn($path)=>asset($path))->all()])->all();
 @endphp
-<form method="post" action="{{ $product->exists ? route('products.update',$product) : route('products.store') }}" class="card form-card" x-data="productPlan(@js(['price'=>old('price',$product->price??''),'initial'=>old('initial_amount',$product->initial_amount??'0.00'),'count'=>old('installment_count',$product->installment_count??5),'model'=>old('model',$product->model??''),'color'=>old('color',$product->color??''),'images'=>$vehicleImages]))">
-@csrf @if($product->exists)@method('PUT')@endif
-<h2>Datos del producto</h2>
-@if(auth()->user()->isAdmin())@if($product->exists)<p class="muted mb-6">Empresa administradora: {{ $product->dealership->name }}</p>@else<label>Empresa administradora<select name="dealership_id" required>@foreach($dealerships->where('active',true) as $dealer)<option value="{{ $dealer->id }}" @selected(old('dealership_id',$currentDealership?->id)==$dealer->id)>{{ $dealer->name }}</option>@endforeach</select></label>@endif @endif
-<div class="form-grid product-details-grid">
-<label>Marca<input name="brand" value="{{ old('brand',$product->brand) }}" required maxlength="60" autofocus placeholder="Ej. Bera"></label>
-<label>Modelo<input name="model" x-model="vehicleModel" value="{{ old('model',$product->model) }}" required maxlength="80" placeholder="Ej. X3 Pro"></label>
-<label>Transmisión<select name="transmission" required><option value="">Selecciona una opción</option>@foreach(\App\Models\Product::TRANSMISSIONS as $value=>$label)<option value="{{ $value }}" @selected(old('transmission',$product->transmission)===$value)>{{ $label }}</option>@endforeach</select></label>
-<label>Año<input type="number" name="year" value="{{ old('year',$product->year) }}" required min="1900" max="{{ today()->year+1 }}" step="1" placeholder="{{ today()->year }}"></label>
-<label>Precio contado ($)<input type="number" name="cash_price" min="0.01" max="9999999999.99" step="0.01" value="{{ old('cash_price',$product->cash_price) }}" required></label>
-<label>Precio Tráetelo con Bera ($)<input type="number" name="price" x-model="price" min="0.01" max="9999999999.99" step="0.01" value="{{ old('price',$product->price) }}" required></label>
-<label>Cuotas<input type="number" name="installment_count" x-model="count" min="1" max="120" step="1" value="{{ old('installment_count',$product->installment_count??5) }}" placeholder="Cantidad de cuotas" required></label>
-<label>Inicial ($)<input type="number" name="initial_amount" x-model="initial" min="0" max="9999999999.99" step="0.01" value="{{ old('initial_amount',$product->initial_amount??'0.00') }}" required></label>
-<label>Estado<select name="active"><option value="1" @selected(old('active',$product->active)==1)>Activo</option><option value="0" @selected(old('active',$product->active)==0)>Inactivo</option></select></label>
+<form method="post" enctype="multipart/form-data" action="{{ $product->exists?route('products.update',$product):route('products.store') }}" class="card form-card" x-data="productPlan(@js(['type'=>old('product_type',$product->product_type??'general'),'name'=>old('name',$product->name??''),'image'=>$product->image_path?asset('storage/'.$product->image_path):'','price'=>old('price',$product->price??''),'payInInstallments'=>(bool)old('pay_in_installments',$product->pay_in_installments??true),'initial'=>old('initial_amount',$product->initial_amount??'0.00'),'count'=>old('installment_count',$product->installment_count??5),'model'=>old('model',$product->model??''),'color'=>old('color',$product->color??''),'images'=>$vehicleImages]))">@csrf @if($product->exists)@method('PUT')@endif
+<fieldset class="record-fields" @disabled($readOnly??false)><h2>Datos del producto</h2><div class="form-grid product-details-grid">
+<label>Tipo de producto<select name="product_type" x-model="type"><option value="general">Producto general</option><option value="vehicle">Vehículo</option><option value="service">Servicio</option></select></label>
+<label>Referencia / Código<input name="sku" value="{{ old('sku',$product->sku) }}" maxlength="80" placeholder="Opcional"></label>
+<label x-show="type!=='vehicle'">Nombre del producto<input name="name" x-model="productName" :required="type!=='vehicle'" :disabled="type==='vehicle'" maxlength="180"></label>
+<label x-show="type==='vehicle'" x-cloak>Marca<input name="brand" value="{{ old('brand',$product->brand) }}" :required="type==='vehicle'" :disabled="type!=='vehicle'" maxlength="60"></label>
+<label x-show="type==='vehicle'" x-cloak>Modelo<input name="model" x-model="vehicleModel" :required="type==='vehicle'" :disabled="type!=='vehicle'" maxlength="80" placeholder="Ej. X3 Pro"></label>
+<label x-show="type==='vehicle'" x-cloak>Transmisión<select name="transmission" :disabled="type!=='vehicle'"><option value="">Sin especificar</option>@foreach(\App\Models\Product::TRANSMISSIONS as $value=>$label)<option value="{{ $value }}" @selected(old('transmission',$product->transmission)===$value)>{{ $label }}</option>@endforeach</select></label>
+<label x-show="type==='vehicle'" x-cloak>Año<input type="number" name="year" value="{{ old('year',$product->year) }}" min="1900" max="{{ today()->year+1 }}" :disabled="type!=='vehicle'"></label>
+<label class="checkbox-label full"><input type="hidden" name="pay_in_installments" value="0"><input type="checkbox" name="pay_in_installments" value="1" x-model="payInInstallments">Pagar por cuotas</label>
+<label>Precio de venta ($)<input name="price" type="number" x-model="price" min="0.01" step="0.01" max="9999999999.99" required></label>
+<label x-show="payInInstallments" x-cloak>Precio contado ($)<input name="cash_price" type="number" value="{{ old('cash_price',$product->cash_price) }}" min="0.01" step="0.01" max="9999999999.99" placeholder="Igual al precio de venta" :disabled="!payInInstallments"></label>
+<label x-show="payInInstallments" x-cloak>Inicial ($)<input name="initial_amount" type="number" x-model="initial" min="0" step="0.01" max="9999999999.99" :required="payInInstallments" :disabled="!payInInstallments"></label>
+<label x-show="payInInstallments" x-cloak>Cuotas<input name="installment_count" type="number" x-model="count" min="1" max="120" step="1" :required="payInInstallments" :disabled="!payInInstallments"></label>
+<label x-show="payInInstallments" x-cloak>Estado<select name="active" :disabled="!payInInstallments"><option value="1" @selected(old('active',$product->active??true))>Activo</option><option value="0" @selected(!old('active',$product->active??true))>Inactivo</option></select></label>
+<label x-show="payInInstallments" x-cloak>Descripción<textarea name="description" maxlength="2000" :disabled="!payInInstallments">{{ old('description',$product->description) }}</textarea></label>
 </div>
-<div class="product-options-grid">
-<fieldset class="product-color-field"><legend>Colores</legend><div class="product-colors">@foreach(\App\Models\Product::COLORS as $value=>$color)<label class="product-color-option"><input type="radio" name="color" x-model="color" value="{{ $value }}" @checked(old('color',$product->color)===$value) required><span class="product-color-circle" style="--vehicle-color:{{ $color['hex'] }}" aria-hidden="true"></span><span>{{ $color['label'] }}</span></label>@endforeach</div>
-<div class="product-vehicle-preview" data-vehicle-preview>
-<template x-if="vehicleImage && !imageFailed"><figure><img :src="vehicleImage" :alt="vehicleCaption" x-on:error="imageFailed=true" decoding="async" data-vehicle-image><figcaption x-text="vehicleCaption"></figcaption></figure></template>
-<p class="muted" x-show="!vehicle" x-text="vehicleModel.trim() ? 'No hay fotografías disponibles para este modelo.' : 'Indica el modelo para ver sus fotografías.'" aria-live="polite"></p>
-<p class="muted" x-show="vehicle && !vehicleImage" x-cloak>Selecciona un color para ver el vehículo.</p>
-<p class="muted" x-show="imageFailed" x-cloak role="status">No se pudo cargar la fotografía del vehículo.</p>
-</div>
-</fieldset>
-<section class="product-plan card table-card" aria-label="Previsualización del plan de pagos" data-product-plan>
-<div class="card-heading"><div><h2>Previsualización del plan de pagos</h2><p>Inicial y cuotas por unidad del producto.</p></div></div>
-<p class="muted product-plan-message" x-show="error" x-text="error" aria-live="polite"></p>
-<div class="table-scroll" x-show="!error" x-cloak><table><thead><tr><th>Concepto</th><th>Monto</th></tr></thead><tbody>
-<tr data-plan-initial><td><strong>Inicial</strong></td><td x-text="money(cents(initial))"></td></tr>
-<template x-for="row in schedule" :key="row.number"><tr data-plan-installment><td x-text="'Cuota '+row.number"></td><td x-text="money(row.amount)"></td></tr></template>
-</tbody><tfoot><tr><td><strong>Total</strong></td><td><strong data-plan-total x-text="money(cents(price))"></strong></td></tr></tfoot></table></div>
-</section>
-</div>
-<p class="muted mb-6">El precio Tráetelo con Bera se utiliza al crear una venta programada.</p>
-<p class="muted">La inicial se suma según la cantidad seleccionada. Los cambios de precio o inicial se aplican a las ventas nuevas.</p><div class="form-actions"><a class="btn secondary" href="{{ route('products.index') }}">Cancelar</a><button class="btn primary"><i data-lucide="check"></i>Guardar producto</button></div>
-</form>
-@if($product->exists)<form method="post" action="{{ route('products.destroy',$product) }}" class="mt-6" data-confirm="¿Eliminar este producto?">@csrf @method('DELETE')<button class="btn danger">Eliminar producto</button></form>@endif
+<div class="product-options-grid" x-show="payInInstallments" x-cloak><section class="card form-card"><h2>Imagen del producto</h2><label>Subir imagen<input type="file" name="image" accept="image/jpeg,image/png,image/webp" @change="previewFile($event)" :disabled="!payInInstallments"><small class="muted">JPG, PNG o WebP. Máximo 4 MB.</small></label>
+<fieldset class="product-color-field" x-show="type==='vehicle'" x-cloak><legend>Color</legend><div class="product-colors">@foreach(\App\Models\Product::COLORS as $value=>$color)<label class="product-color-option"><input name="color" type="radio" x-model="color" value="{{ $value }}" :disabled="type!=='vehicle'||!payInInstallments"><span class="product-color-circle" style="--vehicle-color:{{ $color['hex'] }}" aria-hidden="true"></span><span>{{ $color['label'] }}</span></label>@endforeach</div></fieldset>
+<div class="product-vehicle-preview"><template x-if="vehicleImage&&!imageFailed"><figure><img :src="vehicleImage" :alt="vehicleCaption" x-on:error="imageFailed=true" data-vehicle-image><figcaption x-text="vehicleCaption"></figcaption></figure></template><p class="muted" x-show="!vehicleImage">Puedes asociar una fotografía a cualquier producto.</p></div></section>
+<section class="product-plan card table-card" data-product-plan aria-label="Previsualización del plan de pagos"><div class="card-heading"><div><h2>Previsualización del plan de pagos</h2><p>Inicial y cuotas por unidad.</p></div></div><p class="muted product-plan-message" x-show="error" x-text="error"></p><div class="table-scroll" x-show="!error" x-cloak><table><thead><tr><th>Concepto</th><th>Monto</th></tr></thead><tbody><tr data-plan-initial><td>Inicial</td><td x-text="money(cents(initial))"></td></tr><template x-for="row in schedule" :key="row.number"><tr data-plan-installment><td x-text="'Cuota '+row.number"></td><td x-text="money(row.amount)"></td></tr></template></tbody><tfoot><tr><td><strong>Total</strong></td><td><strong x-text="money(cents(price))"></strong></td></tr></tfoot></table></div></section></div>
+</fieldset>@unless($readOnly??false)<input type="hidden" name="dealership_id" value="{{ old('dealership_id',$product->dealership_id??$currentDealership?->id) }}">@if(old('duplicate_product_id'))<input type="hidden" name="duplicate_product_id" value="{{ old('duplicate_product_id') }}">@endif<div class="form-actions"><a class="btn secondary" href="{{ route('products.index') }}">Cancelar</a><button class="btn primary">Guardar producto</button></div>@endunless</form>
 @endsection

@@ -26,15 +26,15 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['email' => 'Correo o contraseña incorrectos.']);
         }
         RateLimiter::clear($key);
-        if (! Auth::user()->isAdmin() && ! Auth::user()->dealership?->active) {
+        if (! Auth::user()->hasActiveAccess()) {
             Auth::logout();
             RateLimiter::hit($key, 60);
-            throw ValidationException::withMessages(['email' => 'El usuario no tiene un concesionario activo. Contacta al administrador.']);
+            throw ValidationException::withMessages(['email' => 'El usuario no tiene una empresa activa. Contacta al administrador.']);
         }
         $r->session()->regenerate();
         $r->user()->update(['last_login_at' => now()]);
 
-        return redirect()->intended(route('dashboard'));
+        return redirect()->intended(route('home'));
     }
 
     public function logout(Request $r)

@@ -15,7 +15,7 @@ class ActiveUser
     public function handle(Request $r, Closure $next)
     {
         $user = $r->user()?->fresh();
-        if (! $user?->active || (! $user->isAdmin() && ! $user->dealership?->active)) {
+        if (! $user?->hasActiveAccess()) {
             Auth::logout();
             $r->session()->invalidate();
             $r->session()->regenerateToken();
@@ -33,7 +33,7 @@ class ActiveUser
         View::share([
             'dealerships' => $user->isAdmin() ? Dealership::orderBy('name')->get() : collect([$currentDealership])->filter(),
             'currentDealership' => $currentDealership,
-            'businessName' => $currentDealership?->name ?? 'Bera Cars',
+            'businessName' => $currentDealership?->name ?? 'Cuota',
         ]);
 
         return $next($r);

@@ -9,12 +9,12 @@ class ProductPolicy
 {
     public function view(User $user, Product $product): bool
     {
-        return $user->isAdmin() || $user->dealership_id === $product->dealership_id;
+        return ! $user->isHeadOffice() && ! $user->isCustomer() && ($user->isAdmin() || $user->dealership_id === $product->dealership_id);
     }
 
     public function create(User $user): bool
     {
-        return $user->canManageUsers();
+        return $user->canManageBusiness();
     }
 
     public function update(User $user, Product $product): bool

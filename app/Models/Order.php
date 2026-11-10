@@ -23,7 +23,9 @@ class Order extends OwnedModel
 
     public function installments()
     {
-        return $this->hasMany(InstallmentSchedule::class)->orderBy('number');
+        return $this->hasMany(InstallmentSchedule::class)
+            ->orderByRaw('CASE WHEN order_item_id IS NOT NULL THEN 0 WHEN number = 0 THEN 1 ELSE 2 END')
+            ->orderBy('due_date')->orderBy('number')->orderBy('id');
     }
 
     public function payments()

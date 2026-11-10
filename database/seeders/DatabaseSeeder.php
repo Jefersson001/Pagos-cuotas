@@ -20,7 +20,9 @@ class DatabaseSeeder extends Seeder
     {
         // User::factory(10)->create();
 
-        Role::firstOrCreate(['name' => 'admin']);
+        foreach (array_keys(Role::LABELS) as $name) {
+            Role::firstOrCreate(['name' => $name]);
+        }
         Role::firstOrCreate(['name' => 'user']);
         Role::firstOrCreate(['name' => 'dealership_admin']);
         foreach (['Efectivo', 'Transferencia', 'Pago Móvil', 'Zelle', 'Divisas', 'Otro'] as $name) {

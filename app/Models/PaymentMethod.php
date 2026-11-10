@@ -30,6 +30,9 @@ class PaymentMethod extends Model
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
+        if ($user->isCustomer() || $user->isHeadOffice()) {
+            return $query->whereRaw('1=0');
+        }
         $id = DealershipContext::id($user);
 
         return $id ? $query->where('dealership_id', $id) : ($user->isAdmin() ? $query : $query->whereRaw('1=0'));

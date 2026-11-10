@@ -2,7 +2,7 @@ import {openMenu,openSettings} from './navigation.js';
 import {test,expect} from '@playwright/test';
 import {execFileSync} from 'node:child_process';
 let credentials;
-test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php'],{env:{...process.env,DB_CONNECTION:'mysql',DB_DATABASE:'ventas_programada_browser'},encoding:'utf8'}));});
+test.beforeAll(()=>{credentials=JSON.parse(execFileSync('php',['tests/browser/seed.php'],{env:{...process.env,DB_CONNECTION:'mysql',DB_DATABASE:'ventas_cuotas_browser'},encoding:'utf8'}));});
 test('productos relacionales, cantidades e inicial calculada del pedido',async({page})=>{
  test.setTimeout(90000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/login');await page.locator('[name=email]').fill(credentials.email);await page.locator('[name=password]').fill(credentials.password);await page.getByRole('button',{name:'Ingresar al panel'}).click();

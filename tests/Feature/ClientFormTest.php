@@ -49,7 +49,7 @@ class ClientFormTest extends TestCase
         $manager = $this->user('dealership_admin', $a);
         $advisor = $this->user('user', $a);
         $this->get(route('clients.responsible-users', ['dealership_id' => $a->id]))->assertRedirect(route('login'));
-        $this->actingAs($manager)->getJson(route('clients.responsible-users', ['dealership_id' => $a->id]))->assertOk();
+        $this->actingAs($manager)->getJson(route('clients.responsible-users', ['dealership_id' => $a->id]))->assertForbidden();
         $this->getJson(route('clients.responsible-users', ['dealership_id' => $b->id]))->assertForbidden();
         $this->actingAs($advisor)->getJson(route('clients.responsible-users', ['dealership_id' => $a->id]))->assertForbidden();
     }

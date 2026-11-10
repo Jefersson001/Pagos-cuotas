@@ -4,32 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Queries\OrderQuery;
-use App\Services\DashboardService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
-    public function index(Request $r, DashboardService $service): View
+    public function index(Request $request): RedirectResponse
     {
-        $r->validate(['from' => 'nullable|date_format:Y-m-d', 'to' => 'nullable|date_format:Y-m-d', 'date_mode' => 'nullable|in:today,custom', 'page' => 'nullable|integer|min:1']);
-        $today = today()->toDateString();
-        $automatic = $r->input('date_mode') === 'today' || (! $r->filled('from') && ! $r->filled('to'));
-        $from = $automatic ? $today : ($r->input('from') ?: $today);
-        $to = $automatic ? $today : ($r->input('to') ?: $today);
-        if ($to < $from) {
-            throw ValidationException::withMessages(['to' => 'La fecha Hasta debe ser igual o posterior a Desde.']);
-        }
-        $r->query->remove('q');
-        $r->query->remove('account_state');
-        $r->merge(['from' => $from, 'to' => $to, 'date_mode' => $automatic ? 'today' : 'custom']);
-
-        return view('dashboard', $service->build($r));
+        return redirect()->route('workspace.sales', $request->only('dealership_id'));
     }
 
-    public function collections(Request $r)
+    public function collections(Request $r): View
     {
         $r->validate(['from' => 'nullable|date_format:Y-m-d', 'to' => 'nullable|date_format:Y-m-d']);
         $copy = $r->duplicate();

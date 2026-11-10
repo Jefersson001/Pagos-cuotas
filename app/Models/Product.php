@@ -11,6 +11,20 @@ class Product extends OwnedModel
 {
     use HasFactory;
 
+    protected $attributes = ['pay_in_installments' => true];
+
+    protected $appends = ['catalog_version'];
+
+    public function getCatalogVersionAttribute(): string
+    {
+        return hash('sha256', implode('|', [$this->id, $this->name, $this->price, $this->initial_amount, $this->installment_count, (int) $this->pay_in_installments]));
+    }
+
+    public function getRequiredInitialAmountAttribute(): string
+    {
+        return (string) ($this->pay_in_installments ? $this->initial_amount : $this->price);
+    }
+
     public const TRANSMISSIONS = ['sincronico' => 'Sincrónico', 'automatico' => 'Automático'];
 
     public const COLORS = [
@@ -23,14 +37,14 @@ class Product extends OwnedModel
 
     protected function casts(): array
     {
-        return ['price' => 'decimal:2', 'cash_price' => 'decimal:2', 'initial_amount' => 'decimal:2', 'year' => 'integer', 'installment_count' => 'integer', 'active' => 'boolean'];
+        return ['price' => 'decimal:2', 'cash_price' => 'decimal:2', 'initial_amount' => 'decimal:2', 'year' => 'integer', 'installment_count' => 'integer', 'active' => 'boolean', 'pay_in_installments' => 'boolean'];
     }
 
     protected static function booted(): void
     {
         parent::booted();
         static::saving(function (Product $product): void {
-            if ($product->brand && $product->model) {
+            if ($product->product_type === 'vehicle' && $product->brand && $product->model) {
                 $product->name = implode(' ', array_filter([$product->brand, $product->model, $product->year, self::TRANSMISSIONS[$product->transmission] ?? null, self::COLORS[$product->color]['label'] ?? null]));
             }
         });
@@ -38,6 +52,9 @@ class Product extends OwnedModel
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
+        if ($user->isCustomer() || $user->isHeadOffice()) {
+            return $query->whereRaw('1=0');
+        }
         $id = DealershipContext::id($user);
 
         return $id ? $query->where('dealership_id', $id) : ($user->isAdmin() ? $query : $query->whereRaw('1=0'));

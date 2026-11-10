@@ -53,7 +53,7 @@ class ProductTest extends TestCase
         $this->assertSame('Moto Bera 2026 Sincrónico Rojo', $product->name);
         $this->assertSame('800.00', $product->cash_price);
         $this->assertSame(12, $product->installment_count);
-        $this->get(route('products.edit', $product))->assertOk()->assertSee('value="Bera"', false)->assertDontSee('Nombre del producto')->assertSee('type="radio"', false);
+        $this->get(route('products.edit', $product))->assertOk()->assertViewHas('product', fn ($product) => $product->model === 'Bera' && $product->product_type === 'vehicle')->assertSee('type="radio"', false);
         $this->put(route('products.update', $product), array_merge($v, ['model' => 'Bera nueva', 'initial_amount' => '150.00']))->assertSessionHasNoErrors();
         $this->assertSame('150.00', $product->fresh()->initial_amount);
         $this->get(route('products.index', ['q' => 'nueva']))->assertOk()->assertViewHas('products', fn ($p) => $p->total() === 1);
@@ -65,7 +65,7 @@ class ProductTest extends TestCase
     {
         $this->travelTo(now()->setDate(2026, 10, 28));
         $this->actingAs($this->user());
-        $v = ['brand' => 'Bera', 'model' => 'BR 200', 'transmission' => 'automatico', 'year' => 2026, 'color' => 'negro', 'cash_price' => '800.00', 'price' => '1000.00', 'installment_count' => 12, 'initial_amount' => '200.00', 'active' => 1, 'dealership_id' => Dealership::first()->id];
+        $v = ['product_type' => 'vehicle', 'brand' => 'Bera', 'model' => 'BR 200', 'transmission' => 'automatico', 'year' => 2026, 'color' => 'negro', 'cash_price' => '800.00', 'price' => '1000.00', 'installment_count' => 12, 'initial_amount' => '200.00', 'active' => 1, 'dealership_id' => Dealership::first()->id];
         foreach (['brand' => '', 'model' => '', 'transmission' => 'otro', 'year' => 2028, 'color' => 'azul', 'cash_price' => '0', 'price' => '0', 'installment_count' => 0] as $field => $value) {
             $error = $field === 'price' ? 'initial_amount' : $field;
             $this->post(route('products.store'), array_merge($v, [$field => $value]))->assertSessionHasErrors($error);

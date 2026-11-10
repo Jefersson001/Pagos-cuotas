@@ -42,7 +42,7 @@ class ConcessionaireImport
                 throw new RuntimeException("Cantidad de neveras inválida en la fila {$number}.");
             }
             $records[$reference] = [
-                'list_number' => (int) $text('A'), 'business_type' => $text('B') ?: 'CONCESIONARIO', 'name' => $text('C'),
+                'customer_kind' => 'dealership', 'list_number' => (int) $text('A'), 'business_type' => $text('B') ?: 'CONCESIONARIO', 'name' => $text('C'),
                 'refrigerators' => $text('D') === '' ? null : (int) $text('D'),
                 'refrigerators_assigned_at' => $this->date($text('E'), $book['date1904']),
                 'listed_started_at' => $this->date($text('F'), $book['date1904']),

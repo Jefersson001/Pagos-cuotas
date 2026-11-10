@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InstallmentSchedule extends Model
 {
@@ -11,9 +12,16 @@ class InstallmentSchedule extends Model
 
     protected $guarded = [];
 
+    protected $with = ['orderItem'];
+
+    public function orderItem(): BelongsTo
+    {
+        return $this->belongsTo(OrderItem::class);
+    }
+
     protected function casts(): array
     {
-        return ['due_date' => 'date', 'amount' => 'decimal:2', 'number' => 'integer'];
+        return ['due_date' => 'date', 'amount' => 'decimal:2', 'number' => 'integer', 'order_item_id' => 'integer'];
     }
 
     public function order()
@@ -33,6 +41,10 @@ class InstallmentSchedule extends Model
 
     public function getLabelAttribute(): string
     {
+        if ($this->order_item_id !== null) {
+            return 'Pago completo: '.$this->orderItem->description;
+        }
+
         return $this->number === 0 ? 'Inicial' : 'Cuota '.$this->number;
     }
 }

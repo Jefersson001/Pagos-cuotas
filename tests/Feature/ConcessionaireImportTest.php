@@ -110,6 +110,7 @@ class ConcessionaireImportTest extends TestCase
         $order = app(SalesService::class)->create($owner, ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'description' => 'Histórico', 'items' => [['description' => 'Carro', 'quantity' => 1, 'unit_price' => '100.00']], 'initial_amount' => '0', 'installment_count' => 5, 'frequency' => 'monthly', 'first_due' => today()->toDateString()]);
         $method = PaymentMethod::where('dealership_id', $client->dealership_id)->firstOrFail();
         $receipt = app(ReceiptService::class)->receive($owner, $client->id, ['token' => (string) Str::uuid(), 'amount' => '30.00', 'payment_method_id' => $method->id]);
+        $this->approvePendingReceipts();
         app(ReceiptService::class)->apply($owner, $receipt, $order->id, ['token' => (string) Str::uuid(), 'amount' => '10.00']);
         app(ConcessionaireImport::class)->import($this->workbook([3 => ['A' => 1, 'C' => 'Nueva empresa']]), $owner, $owner->dealership_id);
         $this->assertSame(9000, $order->fresh()->balance_cents);
@@ -123,38 +124,42 @@ class ConcessionaireImportTest extends TestCase
     {
         $owner = $this->owner();
         $this->actingAs($owner);
-        $data = ['name' => 'Sucursal A', 'document' => 'J-123', 'phone' => '', 'active' => 1, 'business_type' => 'CONCESIONARIO', 'legal_representative' => 'Representante', 'city' => 'Caracas', 'state' => 'Distrito Capital', 'started_at' => '2026-01-01'];
+        $data = ['customer_kind' => 'dealership', 'name' => 'Sucursal A', 'document' => 'J-123', 'phone' => '', 'active' => 1, 'business_type' => 'CONCESIONARIO', 'legal_representative' => 'Representante', 'city' => 'Caracas', 'state' => 'Distrito Capital', 'started_at' => '2026-01-01'];
         $this->post(route('clients.store'), $data)->assertSessionHasNoErrors();
         $this->post(route('clients.store'), array_merge($data, ['name' => 'Sucursal B', 'city' => 'Valencia']))->assertSessionHasNoErrors();
         $this->assertDatabaseCount('clients', 2);
         $record = Client::firstOrFail();
-        $this->assertStringContainsString('/concesionarios', route('clients.index'));
-        $this->get(route('clients.index'))->assertOk()->assertViewHas('clients', fn ($rows) => $rows->total() === 2)->assertSee('Concesionarios');
+        $this->assertStringContainsString('/concesionarios', route('concessionaires.index'));
+        $this->get(route('clients.index', ['customer_kind' => 'dealership']))->assertOk()->assertViewHas('clients', fn ($rows) => $rows->total() === 2)->assertSee('Concesionario');
         $this->get(route('clients.show', $record))->assertOk()->assertSee('Representante')->assertSee('Caracas');
         $other = $this->owner();
         $this->actingAs($other)->get(route('clients.edit', $record))->assertForbidden();
         $this->get(route('clients.index'))->assertViewHas('clients', fn ($rows) => $rows->total() === 0);
         $admin = User::factory()->create(['role_id' => Role::where('name', 'admin')->value('id'), 'dealership_id' => null]);
-        $this->actingAs($admin)->get(route('dealerships.index'))->assertRedirect(route('clients.index'));
+        $this->actingAs($admin)->get(route('dealerships.index'))->assertOk();
         $this->get('/clients')->assertRedirect(route('clients.index'));
     }
 
-    public function test_form_only_exposes_spreadsheet_columns_and_keeps_management_data_automatic(): void
+    public function test_unified_form_keeps_commercial_fields_and_management_data_automatic(): void
     {
         $owner = $this->owner();
         $admin = User::factory()->create(['role_id' => Role::where('name', 'admin')->value('id'), 'dealership_id' => null]);
-        $response = $this->actingAs($admin)->get(route('clients.create'))->assertOk();
+        $response = $this->actingAs($admin)->get(route('clients.create', ['customer_kind' => 'dealership']))->assertOk();
         $document = new \DOMDocument;
         @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
         $xpath = new \DOMXPath($document);
         $fields = [];
         foreach ($xpath->query('//form[contains(@class,"form-card")]//*[@name]') as $field) {
-            if (! str_starts_with($field->getAttribute('name'), '_')) {
+            if (! str_starts_with($field->getAttribute('name'), '_') && $field->getAttribute('type') !== 'hidden') {
                 $fields[] = $field->getAttribute('name');
             }
         }
-        $this->assertSame(['business_type', 'name', 'condition', 'started_at', 'legal_representative', 'address', 'city', 'state', 'document', 'phone', 'email'], $fields);
-        $this->post(route('clients.store'), ['name' => 'Empresa del listado', 'document' => 'J-0001', 'condition' => 'ACTIVO'])->assertSessionHasNoErrors();
+        foreach (['customer_kind', 'business_type', 'name', 'condition', 'started_at', 'legal_representative', 'address', 'city', 'state', 'document', 'phone', 'email'] as $field) {
+            $this->assertContains($field, $fields);
+        }
+        $this->assertNotContains('user_id', $fields);
+        $this->assertContains('dealership_id', $fields);
+        $this->post(route('clients.store'), ['customer_kind' => 'dealership', 'name' => 'Empresa del listado', 'document' => 'J-0001', 'condition' => 'ACTIVO'])->assertSessionHasNoErrors();
         $record = Client::firstOrFail();
         $this->assertSame($owner->id, $record->user_id);
         $this->assertTrue($record->active);
@@ -166,7 +171,7 @@ class ConcessionaireImportTest extends TestCase
         foreach ((new \DOMXPath($document))->query('//*[@data-concessionaire-details]//small') as $label) {
             $labels[] = $label->textContent;
         }
-        $this->assertSame(['Tipo', 'Cliente', 'Condición', 'Fecha de inicio', 'Representante legal', 'Dirección', 'Ciudad', 'Estado', 'RIF', 'Teléfono', 'Correo'], $labels);
+        $this->assertSame(['Tipo', 'Cliente', 'Condición', 'Fecha de inicio', 'Representante legal', 'Dirección', 'Ciudad', 'Estado', 'RIF', 'Teléfono', 'Correo', 'Organización'], $labels);
         $record->update(['whatsapp' => '584121234567', 'notes' => 'Histórico']);
         $this->put(route('clients.update', $record), ['name' => 'Empresa actualizada', 'condition' => 'INACTIVO'])->assertSessionHasNoErrors();
         $this->assertSame($owner->id, $record->fresh()->user_id);

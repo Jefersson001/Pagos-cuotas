@@ -7,19 +7,31 @@ use App\Models\Dealership;
 use App\Models\User;
 use App\Services\Audit;
 use App\Services\DealershipContext;
+use App\Services\HeadOfficeOverviewService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
 
 class ClientController extends Controller
 {
     public function index(Request $r)
     {
-        $q = Client::visibleTo($r->user())->with('owner');
-        $r->validate(['q' => 'nullable|string|max:255', 'business_type' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1']);
+        $r->validate(['q' => 'nullable|string|max:255', 'customer_kind' => 'nullable|in:person,dealership', 'business_type' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1']);
+        $customerKind = $r->input('customer_kind', $r->route('customer_kind'));
+        if ($r->user()->isHeadOffice()) {
+            $customerKind = 'dealership';
+        } elseif (! $r->user()->isAdmin() && $r->user()->concessionaire_id) {
+            $customerKind = 'person';
+        }
+        $q = Client::visibleTo($r->user())->with(['owner', 'concessionaire']);
+        if ($customerKind) {
+            $q->where('customer_kind', $customerKind);
+        }
         if ($r->filled('q')) {
             $s = '%'.$r->string('q')->toString().'%';
             $q->where(fn ($q) => $q->where('name', 'like', $s)->orWhere('document', 'like', $s)->orWhere('phone', 'like', $s)->orWhere('city', 'like', $s)->orWhere('state', 'like', $s)->orWhere('legal_representative', 'like', $s));
@@ -31,11 +43,13 @@ class ClientController extends Controller
             $q->where('active', $r->boolean('active'));
         }
 
-        return view('clients.index', ['clients' => $q->latest()->paginate(15)->withQueryString()]);
+        return view('clients.index', ['clients' => $q->latest()->paginate(15)->withQueryString(), 'customerKind' => $customerKind]);
     }
 
     public function create(Request $r)
     {
+        $r->validate(['customer_kind' => 'nullable|in:person,dealership']);
+
         return view('clients.form', $this->formData($r, new Client));
     }
 
@@ -49,26 +63,64 @@ class ClientController extends Controller
     private function formData(Request $r, Client $client): array
     {
         $selectedDealershipId = $client->dealership_id ?? ($r->user()->isAdmin() ? (int) $r->old('dealership_id', DealershipContext::id($r->user()) ?? Dealership::where('active', true)->orderBy('id')->value('id')) : $r->user()->dealership_id);
-        $users = $r->user()->canManageUsers() ? User::where('dealership_id', $selectedDealershipId)->where('active', true)->orderBy('name')->get(['id', 'name']) : collect();
+        $users = $r->user()->canManageUsers() ? User::whereHas('role', fn ($role) => $role->whereIn('name', ['admin', 'dealership_admin', 'user']))->where('dealership_id', $selectedDealershipId)->where('active', true)->orderBy('name')->get(['id', 'name']) : collect();
 
-        return compact('client', 'users', 'selectedDealershipId');
+        $requestedKind = $r->old('customer_kind', $client->customer_kind ?? $r->input('customer_kind', $r->route('customer_kind', 'person')));
+        $customerKind = in_array($requestedKind, ['person', 'dealership'], true) ? $requestedKind : 'person';
+        if ($r->user()->isHeadOffice()) {
+            $customerKind = 'dealership';
+        } elseif (! $r->user()->isAdmin() && $r->user()->concessionaire_id) {
+            $customerKind = 'person';
+        }
+        $selectedConcessionaireId = $client->concessionaire_id ?? (! $r->user()->isAdmin() ? $r->user()->concessionaire_id : null);
+        $concessionaires = $this->concessionairesFor($r->user(), $client->concessionaire_id)
+            ->when($client->exists, fn (Builder $query) => $query->where('id', '!=', $client->id))
+            ->where(fn (Builder $query) => $query->where('active', true)->orWhereKey($selectedConcessionaireId))
+            ->with('dealership:id,name')->orderBy('name')->get();
+
+        $organizations = $r->user()->isAdmin() ? Dealership::where('active', true)->orderBy('name')->get(['id', 'name']) : collect();
+
+        return compact('client', 'users', 'selectedDealershipId', 'customerKind', 'concessionaires', 'selectedConcessionaireId', 'organizations');
+    }
+
+    /** @return Builder<Client> */
+    private function concessionairesFor(User $actor, ?int $existingId = null): Builder
+    {
+        $query = Client::where('customer_kind', 'dealership');
+        if (! $actor->isAdmin()) {
+            $query->where('dealership_id', $actor->dealership_id);
+            if ($actor->concessionaire_id) {
+                $query->whereKey($actor->concessionaire_id);
+            }
+            if (! $actor->canManageBusiness()) {
+                $query->where(fn (Builder $query) => $query->where('user_id', $actor->id)
+                    ->orWhereIn('id', array_filter([$actor->concessionaire_id, $existingId])));
+            }
+        }
+
+        return $query;
     }
 
     public function responsibleUsers(Request $r): JsonResponse
     {
-        abort_unless($r->user()->canManageUsers(), 403);
+        abort_unless($r->user()->isAdmin(), 403);
         $values = $r->validate(['dealership_id' => 'required|integer|exists:dealerships,id']);
         $id = (int) $values['dealership_id'];
         abort_unless($r->user()->isAdmin() || $r->user()->dealership_id === $id, 403);
         Dealership::where('active', true)->findOrFail($id);
 
-        return response()->json(['users' => User::where('dealership_id', $id)->where('active', true)->orderBy('name')->get(['id', 'name'])])->header('Cache-Control', 'private, no-store');
+        return response()->json(['users' => User::whereHas('role', fn ($role) => $role->whereIn('name', ['admin', 'dealership_admin', 'user']))->where('dealership_id', $id)->where('active', true)->orderBy('name')->get(['id', 'name'])])->header('Cache-Control', 'private, no-store');
     }
 
-    public function show(Client $client)
+    public function show(Request $request, Client $client): View
     {
         Gate::authorize('view', $client);
-        $client->load(['receipts.method', 'receipts.applications', 'orders.payments.method', 'orders.installments.allocations.payment']);
+        if ($request->user()->isHeadOffice()) {
+            $headOfficeResults = app(HeadOfficeOverviewService::class)->build($request)['rows']->firstWhere('id', $client->id);
+
+            return view('clients.show', compact('client', 'headOfficeResults'));
+        }
+        $client->load(['concessionaire', 'receipts.method', 'receipts.applications', 'orders.payments.method', 'orders.installments.allocations.payment']);
 
         return view('clients.show', compact('client'));
     }
@@ -87,13 +139,49 @@ class ClientController extends Controller
 
     private function save(Request $r, Client $client): RedirectResponse
     {
-        $r->validate(['user_id' => 'sometimes|required|integer']);
-        $companyId = $client->dealership_id ?? DealershipContext::id($r->user()) ?? Dealership::where('active', true)->orderBy('id')->value('id');
-        $defaultOwner = $client->user_id ?? ($r->user()->canManageUsers()
-            ? (User::where('dealership_id', $companyId)->where('active', true)->whereHas('role', fn ($q) => $q->where('name', 'user'))->orderBy('id')->value('id') ?? $r->user()->id)
+        if ($r->user()->isHeadOffice()) {
+            if ($r->input('customer_kind', $client->customer_kind ?? 'dealership') !== 'dealership') {
+                throw ValidationException::withMessages(['customer_kind' => 'Casa matriz solo puede registrar concesionarios, no clientes finales.']);
+            }
+            abort_if(($r->filled('dealership_id') && $r->integer('dealership_id') !== $r->user()->dealership_id) || $r->filled('concessionaire_id'), 403);
+            $r->merge(['customer_kind' => 'dealership', 'dealership_id' => $r->user()->dealership_id]);
+        }
+        if (! $r->user()->isAdmin() && $r->user()->concessionaire_id) {
+            if ($r->input('customer_kind', $client->customer_kind ?? 'person') !== 'person') {
+                throw ValidationException::withMessages(['customer_kind' => 'Un concesionario solo puede registrar clientes de su propia cartera.']);
+            }
+        }
+        $r->validate(['user_id' => 'sometimes|required|integer', 'concessionaire_id' => 'nullable|integer|exists:clients,id']);
+        $concessionaire = null;
+        if ($r->input('customer_kind', $client->customer_kind ?? 'person') === 'person') {
+            $concessionaireId = $r->input('concessionaire_id', $client->concessionaire_id);
+            if (! $r->user()->isAdmin() && $r->user()->concessionaire_id) {
+                $assignedId = $client->concessionaire_id ?? $r->user()->concessionaire_id;
+                if ($r->filled('concessionaire_id') && $r->integer('concessionaire_id') !== $assignedId) {
+                    throw ValidationException::withMessages(['concessionaire_id' => 'El concesionario se asigna automáticamente según tu usuario.']);
+                }
+                $concessionaireId = $assignedId;
+            }
+            if ($concessionaireId) {
+                $concessionaire = $this->concessionairesFor($r->user(), $client->concessionaire_id)->find($concessionaireId);
+                if (! $concessionaire || (! $concessionaire->active && $client->concessionaire_id !== $concessionaire->id)) {
+                    throw ValidationException::withMessages(['concessionaire_id' => 'Selecciona un concesionario activo de Contactos.']);
+                }
+            }
+        }
+        $companyId = $client->dealership_id ?? $concessionaire?->dealership_id ?? ($r->user()->isAdmin() && $r->filled('dealership_id') ? $r->integer('dealership_id') : null) ?? DealershipContext::id($r->user()) ?? Dealership::where('active', true)->orderBy('id')->value('id');
+        $defaultOwner = $client->user_id ?? ($r->user()->isAdmin()
+            ? (User::whereHas('role', fn ($role) => $role->whereIn('name', ['admin', 'dealership_admin', 'user']))->where('dealership_id', $companyId)->where('active', true)->whereHas('role', fn ($q) => $q->where('name', 'user'))->orderBy('id')->value('id') ?? $r->user()->id)
             : $r->user()->id);
-        $owner = $r->user()->canManageUsers() ? (int) $r->input('user_id', $defaultOwner) : $r->user()->id;
-        if ($r->user()->managesDealership()) {
+        $owner = $r->user()->isAdmin() ? (int) $r->input('user_id', $defaultOwner) : ($client->user_id ?? $r->user()->id);
+        $keepsAssignedOwner = $client->exists && (($r->user()->concessionaire_id && $client->concessionaire_id === $r->user()->concessionaire_id) || ($r->user()->isHeadOffice() && $client->customer_kind === 'dealership' && $client->dealership_id === $r->user()->dealership_id));
+        if ($r->user()->isHeadOffice() && $r->filled('user_id')) {
+            abort_unless($r->integer('user_id') === $owner, 403);
+        }
+        if ($r->user()->managesDealership() && $r->filled('user_id')) {
+            abort_unless($r->integer('user_id') === $owner, 403);
+        }
+        if ($r->user()->managesDealership() && ! $keepsAssignedOwner) {
             abort_unless(User::managedBy($r->user())->whereKey($owner)->exists(), 403);
         }
         if ($r->has('whatsapp')) {
@@ -103,23 +191,39 @@ class ClientController extends Controller
             $condition = mb_strtoupper(trim((string) $r->input('condition')));
             $r->merge(['active' => $condition === '' ? ($client->active ?? true) : ! in_array($condition, ['INACTIVO', 'INACTIVA'], true)]);
         }
-        $v = $r->validate(['name' => 'required|string|max:255', 'document' => 'nullable|string|max:80', 'phone' => 'nullable|string|max:255', 'whatsapp' => 'nullable|string|regex:/^[0-9]{7,20}$/', 'email' => 'nullable|string|max:255', 'address' => 'nullable|string|max:2000', 'notes' => 'nullable|string|max:3000', 'active' => 'required|boolean', 'dealership_id' => 'nullable|integer|exists:dealerships,id', 'business_type' => 'nullable|string|max:80', 'condition' => 'nullable|string|max:80', 'list_number' => 'nullable|integer|min:1', 'refrigerators' => 'nullable|integer|min:0', 'refrigerators_assigned_at' => 'nullable|date_format:Y-m-d', 'listed_started_at' => 'nullable|date_format:Y-m-d', 'commercial_registry' => 'nullable|string|max:2000', 'registry_jurisdiction' => 'nullable|string|max:255', 'registry_date' => 'nullable|date_format:Y-m-d', 'registry_number' => 'nullable|string|max:80', 'registry_volume' => 'nullable|string|max:80', 'started_at' => 'nullable|date_format:Y-m-d', 'legal_representative' => 'nullable|string|max:2000', 'city' => 'nullable|string|max:255', 'state' => 'nullable|string|max:255'], ['whatsapp.regex' => 'Escribe un WhatsApp válido, por ejemplo +58 412 1234567 o 0412-1234567.']);
+        $v = $r->validate(['customer_kind' => 'sometimes|required|in:person,dealership', 'name' => 'required|string|max:255', 'document' => 'required_if:duplicate_record,client|nullable|string|max:80', 'phone' => 'nullable|string|max:255', 'whatsapp' => 'nullable|string|regex:/^[0-9]{7,20}$/', 'email' => 'nullable|string|max:255', 'address' => 'nullable|string|max:2000', 'notes' => 'nullable|string|max:3000', 'active' => 'required|boolean', 'dealership_id' => 'nullable|integer|exists:dealerships,id', 'business_type' => 'nullable|string|max:80', 'condition' => 'nullable|string|max:80', 'list_number' => 'nullable|integer|min:1', 'refrigerators' => 'nullable|integer|min:0', 'refrigerators_assigned_at' => 'nullable|date_format:Y-m-d', 'listed_started_at' => 'nullable|date_format:Y-m-d', 'commercial_registry' => 'nullable|string|max:2000', 'registry_jurisdiction' => 'nullable|string|max:255', 'registry_date' => 'nullable|date_format:Y-m-d', 'registry_number' => 'nullable|string|max:80', 'registry_volume' => 'nullable|string|max:80', 'started_at' => 'nullable|date_format:Y-m-d', 'legal_representative' => 'nullable|string|max:2000', 'city' => 'nullable|string|max:255', 'state' => 'nullable|string|max:255'], ['whatsapp.regex' => 'Escribe un WhatsApp válido, por ejemplo +58 412 1234567 o 0412-1234567.']);
+        $v['customer_kind'] = $v['customer_kind'] ?? ($client->customer_kind ?? 'person');
         $v['document'] = array_key_exists('document', $v) ? ($v['document'] ?? '') : ($client->document ?? '');
         $v['phone'] = array_key_exists('phone', $v) ? ($v['phone'] ?? '') : ($client->phone ?? '');
-        DB::transaction(function () use ($v, $owner, $client, $r) {
+        $v['concessionaire_id'] = $concessionaire?->id;
+        DB::transaction(function () use ($v, $owner, $client, $r, $concessionaire, $keepsAssignedOwner) {
             if ($client->exists) {
                 $locked = Client::lockForUpdate()->findOrFail($client->id);
                 Gate::forUser($r->user())->authorize('update', $locked);
                 $client->setRawAttributes($locked->getAttributes(), true);
+                if ($client->customer_kind === 'dealership' && $v['customer_kind'] !== 'dealership'
+                    && ($client->customers()->exists() || User::where('concessionaire_id', $client->id)->exists())) {
+                    throw ValidationException::withMessages(['customer_kind' => 'Este concesionario tiene clientes o usuarios relacionados. Conserva su tipo de contacto.']);
+                }
+                if ($client->customer_kind === 'person' && $v['customer_kind'] !== 'person' && User::where('client_id', $client->id)->exists()) {
+                    throw ValidationException::withMessages(['customer_kind' => 'Este cliente tiene un acceso personal relacionado. Conserva su tipo de contacto.']);
+                }
             }
             $responsible = User::lockForUpdate()->findOrFail($owner);
-            if (! $responsible->active) {
+            if (! $responsible->active || (! $responsible->canOperateFinancial() && ! ($r->user()->isHeadOffice() && $responsible->isHeadOffice() && $responsible->dealership_id === $r->user()->dealership_id))) {
                 throw ValidationException::withMessages(['user_id' => 'El responsable está inactivo.']);
             }
-            $requested = $r->user()->isAdmin() ? ($v['dealership_id'] ?? $responsible->dealership_id) : null;
-            $dealerId = DealershipContext::forWrite($r->user(), $requested ? (int) $requested : null, $client->exists ? $client->dealership_id : null);
+            $requested = $r->user()->isAdmin() ? ($concessionaire?->dealership_id ?? $v['dealership_id'] ?? $responsible->dealership_id) : null;
+            $dealerId = DealershipContext::forContactWrite($r->user(), $requested ? (int) $requested : null, $client->exists ? $client->dealership_id : null);
+            if ($concessionaire) {
+                $linked = $this->concessionairesFor($r->user(), $client->concessionaire_id)->lockForUpdate()->find($concessionaire->id);
+                if (! $linked || $linked->id === $client->id || $linked->dealership_id !== $dealerId
+                    || (! $linked->active && $client->concessionaire_id !== $linked->id)) {
+                    throw ValidationException::withMessages(['concessionaire_id' => 'El concesionario debe estar activo y pertenecer a la misma empresa del cliente.']);
+                }
+            }
             if (! $r->user()->isAdmin()) {
-                abort_unless($responsible->dealership_id === $dealerId && ! $responsible->isAdmin(), 403);
+                abort_unless(($responsible->dealership_id === $dealerId && ! $responsible->isAdmin()) || ($keepsAssignedOwner && $responsible->isAdmin()), 403);
             }
             if ($responsible->dealership_id !== null && $responsible->dealership_id !== $dealerId) {
                 throw ValidationException::withMessages(['user_id' => 'El responsable debe pertenecer a la misma empresa administradora.']);
@@ -136,7 +240,7 @@ class ClientController extends Controller
             Audit::log($r->user()->id, 'save', 'client', $client->id, ['before' => $before, 'after' => $client->getAttributes()]);
         }, 3);
 
-        return redirect()->route('clients.show', $client)->with('success', 'Concesionario guardado.');
+        return redirect()->route('clients.show', $client)->with('success', $client->customer_kind === 'dealership' ? 'Concesionario guardado.' : 'Cliente guardado.');
     }
 
     private function normalizeWhatsApp(mixed $value): mixed

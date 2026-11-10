@@ -14,6 +14,6 @@ class ClientPolicy
 
     public function update(User $user, Client $client): bool
     {
-        return $this->view($user, $client);
+        return ($user->canOperateFinancial() || $user->isHeadOffice()) && $this->view($user, $client);
     }
 }

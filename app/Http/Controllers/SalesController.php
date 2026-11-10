@@ -12,10 +12,12 @@ use App\Services\DealershipContext;
 use App\Services\SalesService;
 use App\Support\MonthlyDateFilter;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
 
 class SalesController extends Controller
 {
@@ -48,7 +50,15 @@ class SalesController extends Controller
                 }
                 $product = $products->get($item['product_id'] ?? null);
                 if ($product) {
-                    $selectedItems[] = ['product_id' => $product->id, 'description' => $product->name, 'quantity' => max(1, min(100000, (int) ($item['quantity'] ?? 1))), 'unit_price' => $product->price, 'initial_amount' => $product->initial_amount];
+                    $customAmounts = in_array($item['use_custom_amounts'] ?? false, [true, 1, '1'], true);
+                    $unitPrice = $customAmounts && is_scalar($item['unit_price'] ?? null) ? (string) $item['unit_price'] : $product->price;
+                    $initialAmount = $customAmounts && is_scalar($item['initial_amount'] ?? null) ? (string) $item['initial_amount'] : $product->required_initial_amount;
+                    if (! $product->pay_in_installments) {
+                        $initialAmount = '0.00';
+                    }
+                    $selectedItems[] = ['product_id' => $product->id, 'description' => $product->name, 'quantity' => max(1, min(100000, (int) ($item['quantity'] ?? 1))),
+                        'unit_price' => $unitPrice, 'initial_amount' => $initialAmount, 'pay_in_installments' => $product->pay_in_installments,
+                        'use_custom_amounts' => $customAmounts, 'isEditing' => $customAmounts, 'catalog_version' => $product->catalog_version];
                 }
             }
         }
@@ -76,7 +86,7 @@ class SalesController extends Controller
 
     public function store(Request $r, SalesService $service)
     {
-        $v = $r->validate(['token' => 'required|uuid', 'client_id' => 'required|integer', 'items' => 'required|array|min:1|max:100', 'items.*.product_id' => 'required|integer|distinct', 'items.*.quantity' => 'required|integer|min:1|max:100000', 'installment_count' => 'required|integer|min:1|max:120', 'frequency' => 'required|in:weekly,fortnightly,monthly,custom', 'first_due' => 'required|date_format:Y-m-d', 'custom' => 'nullable|array|max:120', 'custom.*.amount' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/', 'custom.*.due_date' => 'required|date_format:Y-m-d', 'notes' => 'nullable|string|max:3000']);
+        $v = $r->validate(['token' => 'required|uuid', 'client_id' => 'required|integer', 'items' => 'required|array|min:1|max:100', 'items.*.product_id' => 'required|integer|distinct', 'items.*.catalog_version' => 'nullable|string|size:64', 'items.*.quantity' => 'required|integer|min:1|max:100000', 'items.*.use_custom_amounts' => 'sometimes|boolean', 'items.*.unit_price' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'items.*.initial_amount' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'installment_count' => 'required|integer|min:1|max:120', 'frequency' => 'required|in:weekly,fortnightly,monthly,custom', 'first_due' => 'required|date_format:Y-m-d', 'custom' => 'nullable|array|max:120', 'custom.*.amount' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/', 'custom.*.due_date' => 'required|date_format:Y-m-d', 'notes' => 'nullable|string|max:3000']);
         $order = $service->create($r->user(), $v);
 
         return redirect()->route('orders.show', $order)->with('success', 'Venta creada y cronograma registrado.');
@@ -90,13 +100,38 @@ class SalesController extends Controller
         return view('orders.show', ['order' => $order, 'methods' => PaymentMethod::where('dealership_id', $order->dealership_id)->where('active', true)->get()]);
     }
 
+    public function edit(Order $order): View
+    {
+        Gate::authorize('update', $order);
+        $order->load(['client', 'payments', 'installments.allocations.payment']);
+
+        return view('orders.edit', compact('order'));
+    }
+
+    public function update(Request $request, Order $order): RedirectResponse
+    {
+        Gate::authorize('update', $order);
+        $values = $request->validate(['notes' => 'nullable|string|max:3000']);
+        DB::transaction(function () use ($request, $order, $values): void {
+            Client::lockForUpdate()->findOrFail($order->client_id);
+            $locked = Order::lockForUpdate()->findOrFail($order->id);
+            Gate::authorize('update', $locked);
+            DealershipContext::forWrite($request->user(), null, $locked->dealership_id);
+            $before = $locked->only('notes');
+            $locked->update($values);
+            Audit::log($request->user()->id, 'save', 'order', $locked->id, ['before' => $before, 'after' => $locked->only('notes')]);
+        }, 3);
+
+        return redirect()->route('orders.show', $order)->with('success', 'Venta actualizada.');
+    }
+
     public function pay(Request $r, Order $order, SalesService $service)
     {
         Gate::authorize('update', $order);
         $v = $r->validate(['token' => 'required|uuid', 'amount' => 'required|string', 'payment_source' => 'nullable|in:new,credit', 'new_payment' => 'nullable|boolean', 'allow_credit' => 'nullable|boolean', 'payment_method_id' => 'required_unless:payment_source,credit|nullable|integer', 'installment_id' => 'nullable|integer', 'reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
         $service->pay($r->user(), $order->id, $v);
 
-        return back()->with('success', ($v['payment_source'] ?? 'new') === 'credit' ? 'Saldo a favor aplicado a la venta. No se registró dinero nuevo.' : 'Pago registrado correctamente.');
+        return back()->with('success', ($v['payment_source'] ?? 'new') === 'credit' ? 'Saldo a favor aplicado a la venta. No se registró dinero nuevo.' : ($r->user()->isAdmin() ? 'Pago registrado correctamente.' : 'Pago registrado y relacionado con esta venta, pendiente de aprobación por casa matriz.'));
     }
 
     public function void(Request $r, Payment $payment, SalesService $service)

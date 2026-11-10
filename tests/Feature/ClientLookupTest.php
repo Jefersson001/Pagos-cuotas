@@ -84,7 +84,7 @@ class ClientLookupTest extends TestCase
         $this->client($this->user('user', $a), 'Cliente A', 'A');
         $other = $this->client($this->user('user', $b), 'Cliente B', 'B');
         $this->getJson(route('orders.client-options'))->assertUnauthorized();
-        $this->actingAs($global)->post(route('dealership-context'),['dealership_id' => $a->id]);
-        $this->getJson(route('orders.client-options',['dealership_id' => $b->id]))->assertOk()->assertJsonCount(1,'clients')->assertJsonPath('clients.0.id',$other->id);
+        $this->actingAs($global)->post(route('dealership-context'), ['dealership_id' => $a->id]);
+        $this->getJson(route('orders.client-options', ['dealership_id' => $b->id]))->assertOk()->assertJsonCount(1, 'clients')->assertJsonPath('clients.0.id', $other->id);
     }
 }

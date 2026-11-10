@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'required_if' => 'El campo :attribute es obligatorio para el tipo seleccionado.', 'required_unless' => 'El campo :attribute es obligatorio para el tipo seleccionado.',
     'required' => 'El campo :attribute es obligatorio.', 'email' => 'El campo :attribute debe contener un correo válido.', 'unique' => 'Ya existe un registro con este :attribute.', 'exists' => 'El valor seleccionado de :attribute no es válido.', 'integer' => 'El campo :attribute debe ser un número entero.', 'numeric' => 'El campo :attribute debe ser numérico.', 'string' => 'El campo :attribute debe ser texto.', 'boolean' => 'El campo :attribute debe indicar activo o inactivo.', 'in' => 'El valor de :attribute no está permitido.', 'uuid' => 'La solicitud no es válida. Recarga el formulario.', 'date_format' => 'El campo :attribute debe tener el formato :format.', 'after_or_equal' => 'El campo :attribute debe ser igual o posterior a :date.', 'regex' => 'El formato de :attribute no es válido.', 'alpha_dash' => 'El campo :attribute solo admite letras, números, guiones y guiones bajos.',
     'min' => ['string' => 'El campo :attribute debe contener al menos :min caracteres.', 'numeric' => 'El campo :attribute debe ser al menos :min.', 'array' => 'Agrega al menos :min elementos en :attribute.'],
     'max' => ['string' => 'El campo :attribute admite máximo :max caracteres.', 'numeric' => 'El campo :attribute no debe superar :max.', 'array' => 'El campo :attribute admite máximo :max elementos.'],

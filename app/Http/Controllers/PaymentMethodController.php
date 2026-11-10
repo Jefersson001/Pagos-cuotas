@@ -16,7 +16,7 @@ class PaymentMethodController extends Controller
 {
     private function authorizeAdmin(Request $request, ?PaymentMethod $method = null): void
     {
-        abort_unless($request->user()->canManageUsers(), 403);
+        abort_unless($request->user()->canManageBusiness(), 403);
         if ($method && ! $request->user()->isAdmin()) {
             abort_unless($method->dealership_id === $request->user()->dealership_id, 403);
         }
@@ -26,7 +26,7 @@ class PaymentMethodController extends Controller
     {
         $this->authorizeAdmin($request);
         $request->validate(['q' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1']);
-        $query = PaymentMethod::visibleTo($request->user())->with('dealership')->withCount(['receipts as payments_count']);
+        $query = PaymentMethod::visibleTo($request->user())->with('dealership')->withCount(['receipts as payments_count' => fn ($query) => $query->visibleTo($request->user())]);
         if ($request->filled('q')) {
             $query->where('name', 'like', '%'.$request->input('q').'%');
         }
@@ -42,6 +42,15 @@ class PaymentMethodController extends Controller
         $this->authorizeAdmin($request);
 
         return view('admin.payment-methods.form', ['method' => new PaymentMethod(['active' => true])]);
+    }
+
+    public function show(Request $request, PaymentMethod $paymentMethod): View
+    {
+        $this->authorizeAdmin($request, $paymentMethod);
+
+        request()->session()->forget('_old_input');
+
+        return view('admin.payment-methods.form', ['method' => $paymentMethod, 'readOnly' => true]);
     }
 
     public function edit(Request $request, PaymentMethod $paymentMethod): View
@@ -71,6 +80,7 @@ class PaymentMethodController extends Controller
         $values = $request->validate(['dealership_id' => 'nullable|integer|exists:dealerships,id', 'name' => ['required', 'string', 'max:80', Rule::unique('payment_methods')->where('dealership_id', $dealerId)->ignore($method->id)], 'active' => 'required|boolean']);
         $values['dealership_id'] = $dealerId;
         DB::transaction(function () use ($request, $method, $values) {
+            DealershipContext::forWrite($request->user(), null, $values['dealership_id']);
             if ($method->exists) {
                 $method->setRawAttributes(PaymentMethod::lockForUpdate()->findOrFail($method->id)->getAttributes(), true);
             }

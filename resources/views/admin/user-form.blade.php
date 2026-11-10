@@ -1,14 +1,43 @@
-<form method="post" action="{{ $u->exists?route('users.update',$u):route('users.store') }}" class="user-form">
+<form method="post" action="{{ $u->exists?route('users.update',$u):route('users.store') }}" class="user-form" x-data="{
+ roleId:@js((string)old('role_id',$u->role_id??$roles->firstWhere('name','customer')?->id??$roles->first()?->id)),
+ companyId:@js((string)old('dealership_id',$u->dealership_id??$currentDealership?->id??'')),
+ clientId:@js((string)old('client_id',$u->client_id??'')),
+ concessionaireId:@js((string)old('concessionaire_id',$u->concessionaire_id??$u->client?->concessionaire_id??'')),
+ relateContact:@js($u->exists || (bool)old('relate_contact',false)),
+ roles:@js($roles->pluck('name','id')),
+ companies:@js($companies->map(fn($company)=>['id'=>$company->id,'name'=>$company->name,'type'=>$company->organization_type,'active'=>$company->active])->values()),
+ clients:@js($accountClients),
+ concessionaires:@js($accountConcessionaires),
+ get role(){return this.roles[this.roleId]||''},
+ get availableCompanies(){return this.companies.filter(company=>(company.active||String(company.id)===this.companyId)&&(this.role==='head_office'?company.type==='head_office':this.role==='user'||this.createsContact||company.type==='concessionaire'))},
+ get availableClients(){return this.clients.filter(client=>client.customer_kind==='person'&&(this.role==='customer'?(this.concessionaireId&&String(client.concessionaire_id||'')===this.concessionaireId):String(client.dealership_id)===this.companyId))},
+ get usesContactAssignment(){return this.role==='customer'||this.role==='dealership_admin'},
+ get createsContact(){return this.usesContactAssignment&&!this.relateContact},
+ get selectsConcessionaire(){return this.role==='customer'||(this.role==='dealership_admin'&&this.relateContact)},
+ get selectsCompany(){return this.role!=='admin'&&(!this.usesContactAssignment||this.legacyCompanyAssignment||(this.role==='dealership_admin'&&this.createsContact))},
+ get legacyCompanyAssignment(){return @js($u->exists && $u->role?->name==='dealership_admin' && !$u->concessionaire_id)&&this.role==='dealership_admin'&&!this.concessionaireId},
+ get availableConcessionaires(){return this.concessionaires.filter(contact=>this.usesContactAssignment||String(contact.dealership_id)===this.companyId)},
+ concessionaireChanged(){this.clientId='';if(this.usesContactAssignment)this.companyId=String(this.concessionaires.find(contact=>String(contact.id)===this.concessionaireId)?.dealership_id||'')},
+ clientChanged(){const client=this.clients.find(client=>String(client.id)===this.clientId);if(client)this.companyId=String(client.dealership_id)},
+ contactModeChanged(){this.clientId='';if(this.role==='dealership_admin'){this.concessionaireId='';this.companyId=this.createsContact?String(this.availableCompanies.find(company=>company.active)?.id||''):''}},
+ roleChanged(){this.clientId='';this.concessionaireId='';if(this.role==='admin'||this.usesContactAssignment||!this.availableCompanies.some(company=>String(company.id)===this.companyId))this.companyId='';if(this.role==='dealership_admin'&&this.createsContact)this.companyId=String(this.availableCompanies.find(company=>company.active)?.id||'')}
+}">
  @csrf @if($u->exists)@method('PUT')@endif
- <div class="form-grid">
-  <label>Nombre y apellido<input name="name" value="{{ old('name',$u->name) }}" required maxlength="255" autofocus></label>
-  <label>Nombre de usuario<input name="username" value="{{ old('username',$u->username) }}" required maxlength="80" autocomplete="off"></label>
-  <label>Correo<input name="email" type="email" value="{{ old('email',$u->email) }}" required maxlength="255" autocomplete="off"></label>
-  <label>{{ $u->exists?'Nueva contraseña (opcional)':'Contraseña' }}<input name="password" type="password" minlength="12" maxlength="100" autocomplete="new-password" {{ $u->exists?'':'required' }} placeholder="Mínimo 12 caracteres"></label>
-  <label>Rol<select name="role_id">@foreach($roles as $role)<option value="{{ $role->id }}" @selected(old('role_id',$u->role_id??$roles->firstWhere('name','user')?->id)==$role->id)>{{ match($role->name){'admin'=>'Administrador general','dealership_admin'=>'Administrador de empresa',default=>'Asesor'} }}</option>@endforeach</select></label>
-  @if(auth()->user()->isAdmin())<label>Empresa administradora<select name="dealership_id"><option value="">Sin asignar (administrador general)</option>@foreach($dealerships->filter(fn($dealer)=>$dealer->active||$dealer->id===$u->dealership_id) as $dealer)<option value="{{ $dealer->id }}" @selected(old('dealership_id',$u->dealership_id??($u->exists?null:$currentDealership?->id))==$dealer->id)>{{ $dealer->name }}{{ $dealer->active?'':' (Inactivo)' }}</option>@endforeach</select></label>@endif
-  <label>Estado<select name="active"><option value="1" @selected(old('active',$u->active??true)==1)>Activo</option><option value="0" @selected(old('active',$u->active??true)==0)>Inactivo</option></select></label>
+ <fieldset class="record-fields" @disabled($readOnly??false)><div class="form-grid">
+ <label>Nombre y apellido<input name="name" value="{{ old('name',$u->name) }}" required maxlength="255" autofocus></label>
+ <label>Nombre de usuario<input name="username" value="{{ old('username',$u->username) }}" required maxlength="80" autocomplete="off"></label>
+ <label>Correo de acceso<input name="email" type="email" value="{{ old('email',$u->email) }}" required maxlength="255" autocomplete="off"></label>
+ @unless($readOnly??false)<label>{{ $u->exists?'Nueva contraseña (opcional)':'Contraseña' }}<input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" {{ $u->exists?'':'required' }} placeholder="Mínimo 8 caracteres"></label>@endunless
+ <label>Rol<select name="role_id" x-model="roleId" @change="roleChanged()" required>@foreach($roles as $role)<option value="{{ $role->id }}">{{ \App\Models\Role::LABELS[$role->name]??'Asesor anterior' }}</option>@endforeach</select></label>
+ @unless($u->exists)<div x-show="usesContactAssignment" x-cloak><input type="hidden" name="relate_contact" :value="relateContact ? 1 : 0" :disabled="!usesContactAssignment"><label class="credit-checkbox"><input type="checkbox" x-model="relateContact" @change="contactModeChanged()">Relacionar contacto</label><small x-show="relateContact">Selecciona un contacto que ya existe.</small><small x-show="!relateContact">Se creará el contacto con el nombre y correo del usuario. Podrás completar sus datos después.</small></div>@endunless
+ @if(auth()->user()->isAdmin())<label x-show="selectsCompany" x-cloak><span x-text="role==='head_office'?'Casa matriz asignada':'Empresa asignada'"></span><select name="dealership_id" x-model="companyId" :disabled="!selectsCompany" :required="selectsCompany" @change="clientId='';concessionaireId=''"><option value="">Selecciona una organización</option><template x-for="company in availableCompanies" :key="company.id"><option :value="String(company.id)" x-text="company.name+(company.active?'':' (Inactivo)')"></option></template></select></label><input type="hidden" name="dealership_id" :value="companyId" :disabled="!usesContactAssignment||selectsCompany">
+ @else<input type="hidden" name="dealership_id" value="{{ auth()->user()->dealership_id }}"><label>Organización asignada<input value="{{ auth()->user()->dealership->name }}" disabled></label>@endif
+ <label x-show="selectsConcessionaire" x-cloak>Concesionario asignado<select name="concessionaire_id" aria-label="Concesionario asignado" x-model="concessionaireId" :disabled="!selectsConcessionaire" :required="selectsConcessionaire&&!legacyCompanyAssignment" @change="concessionaireChanged()"><option value="">Selecciona el concesionario</option><template x-for="contact in availableConcessionaires" :key="contact.id"><option :value="String(contact.id)" x-text="contact.name+(contact.document?' · '+contact.document:'')+(contact.active?'':' (Inactivo)')"></option></template></select><small>Registros de Clientes con tipo Concesionario.</small></label>
+ <label x-show="role==='customer'&&relateContact" x-cloak>Ficha del cliente<select name="client_id" aria-label="Ficha del cliente" aria-describedby="client-access-help" x-model="clientId" :disabled="role!=='customer'||!relateContact||!concessionaireId" :required="role==='customer'&&relateContact" @change="clientChanged()"><option value="" x-text="concessionaireId?'Selecciona el cliente':'Primero selecciona el concesionario'"></option><template x-for="client in availableClients" :key="client.id"><option :value="String(client.id)" x-text="client.name+(client.document?' · '+client.document:'')"></option></template></select><small id="client-access-help">Selecciona primero el concesionario. Solo se mostrarán sus registros relacionados de tipo Cliente.</small><small x-show="concessionaireId&&!availableClients.length">No hay clientes activos relacionados con este concesionario.</small></label>
+ <label x-show="role==='user'" x-cloak>Concesionario de contacto<select name="concessionaire_id" aria-label="Concesionario de contacto" x-model="concessionaireId" :disabled="role!=='user'"><option value="">Sin asignar</option><template x-for="contact in availableConcessionaires" :key="contact.id"><option :value="String(contact.id)" x-text="contact.name+(contact.document?' · '+contact.document:'')+(contact.active?'':' (Inactivo)')"></option></template></select><small>Se asignará automáticamente al crear clientes con este usuario.</small></label>
+ <label>Estado<select name="active"><option value="1" @selected(old('active',$u->active??true)==1)>Activo</option><option value="0" @selected(old('active',$u->active??true)==0)>Inactivo</option></select></label>
  </div>
- @if($u->exists)<p class="muted">Para restablecer el acceso, escribe una nueva contraseña. Si la dejas vacía, se conserva la actual.</p>@endif
- <div class="form-actions"><a class="btn secondary" href="{{ route('users') }}">Volver a la lista</a><button class="btn primary"><i data-lucide="check"></i>Guardar usuario</button></div>
-</form>
+ <p class="notice mt-4" x-text="role==='admin'?'Administrador del Sistema: acceso completo a todas las organizaciones y clientes.':role==='head_office'?'Casa matriz: registra sus concesionarios y sus usuarios, y consulta sus resultados.':role==='dealership_admin'?'Concesionario: gestión de sus propios clientes, ventas y pagos.':'Cliente: consulta de sus propias ventas, cuotas, pagos y saldo a favor. No puede modificar ni registrar operaciones.'"></p>
+ @if($u->exists && !($readOnly??false))<p class="muted">Si dejas la contraseña vacía, se conserva la actual.</p>@endif
+ </fieldset>@unless($readOnly??false)<div class="form-actions"><a class="btn secondary" href="{{ route('users') }}">Volver a la lista</a><button class="btn primary"><i data-lucide="check"></i>Guardar usuario</button></div>
+@endunless</form>

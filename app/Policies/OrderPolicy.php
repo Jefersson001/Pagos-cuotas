@@ -14,6 +14,6 @@ class OrderPolicy
 
     public function update(User $user, Order $order): bool
     {
-        return $this->view($user, $order);
+        return $user->canOperateFinancial() && $this->view($user, $order);
     }
 }
