@@ -104,10 +104,14 @@ class User extends Authenticatable
 
             return [
                 'head-office' => ['name' => 'Concesionarios', 'icon' => 'users-round', 'description' => 'Registra tus concesionarios, consulta sus fichas y revisa sus resultados.', 'category' => 'Relaciones comerciales', 'route' => 'head-office.overview', 'patterns' => ['head-office.*', 'clients.*'], 'children' => [['name' => 'Resumen', 'route' => 'head-office.overview'], ['name' => 'Clientes', 'route' => 'clients.index']]],
-                'payments' => ['name' => 'Pagos', 'icon' => 'wallet', 'description' => 'Revisa y aprueba los pagos de tus concesionarios.', 'category' => 'Gestión comercial', 'route' => 'receipts.index', 'patterns' => ['receipts.*']],
+                'products' => $modules['products'],
+                'payments' => ['name' => 'Pagos', 'icon' => 'wallet', 'description' => 'Revisa y aprueba los pagos de tus concesionarios.', 'category' => 'Gestión comercial', 'route' => 'receipts.index', 'patterns' => ['receipts.*', 'payment-methods.*'], 'children' => [['name' => 'Pagos', 'route' => 'receipts.index'], ['name' => 'Métodos de pago', 'route' => 'payment-methods.index', 'payment_methods' => true]]],
                 'reports' => $modules['reports'],
                 'settings' => $modules['settings'],
             ];
+        }
+        if ($this->managesDealership()) {
+            $modules['products']['description'] = 'Consulta el catálogo de productos y sus resultados en tus ventas.';
         }
         if (! $this->isAdmin()) {
             foreach ($modules as &$module) {
@@ -133,6 +137,11 @@ class User extends Authenticatable
     public function canManageBusiness(): bool
     {
         return $this->isAdmin() || $this->managesDealership();
+    }
+
+    public function canManagePaymentMethods(): bool
+    {
+        return ($this->isAdmin() || $this->isHeadOffice()) && $this->hasActiveAccess();
     }
 
     public function canManageOrganizations(): bool

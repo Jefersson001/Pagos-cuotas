@@ -37,6 +37,29 @@ class ProductOverviewTest extends TestCase
         return app(SalesService::class)->create($owner, ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'items' => $items, 'installment_count' => 5, 'frequency' => 'monthly', 'first_due' => '2026-11-01']);
     }
 
+    public function test_head_office_sees_organization_product_summary_without_private_customer_details(): void
+    {
+        $company = Dealership::factory()->create(['organization_type' => 'head_office']);
+        $head = $this->user('head_office', $company->id);
+        $owner = $this->user('user', $company->id);
+        $dealer = Client::factory()->concessionaire()->create(['dealership_id' => $company->id]);
+        $product = Product::factory()->create(['dealership_id' => $company->id, 'user_id' => $head->id, 'price' => '100.00', 'initial_amount' => '20.00']);
+        foreach ([2, 3] as $quantity) {
+            $order = $this->sale($owner, [['product_id' => $product->id, 'quantity' => $quantity]]);
+            $order->client->update(['name' => 'CLIENTE PRIVADO', 'concessionaire_id' => $dealer->id]);
+        }
+        $foreignCompany = Dealership::factory()->create(['organization_type' => 'head_office']);
+        $foreign = Product::factory()->create(['dealership_id' => $foreignCompany->id, 'name' => 'CATALOGO AJENO']);
+        $this->sale($this->user('user', $foreignCompany->id), [['product_id' => $foreign->id, 'quantity' => 10]]);
+        $this->actingAs($head)->get(route('workspace.products', ['dealership_id' => $foreignCompany->id]))->assertOk()
+            ->assertViewHas('total', 1)->assertViewHas('unitsMonth', 5)->assertViewHas('soldMonthCents', 50000)
+            ->assertSee('Resumen de productos')->assertSee('Ver catálogo')->assertSee('Nuevo producto')
+            ->assertDontSee('CLIENTE PRIVADO')->assertDontSee('CATALOGO AJENO');
+        $this->get(route('home'))->assertOk()->assertViewHas('modules', fn ($modules) => $modules['products']['children'] === [['name' => 'Resumen', 'route' => 'workspace.products'], ['name' => 'Productos', 'route' => 'products.index']]);
+        $this->get(route('orders.index'))->assertForbidden();
+        $this->get(route('clients.show', $order->client))->assertForbidden();
+    }
+
     public function test_summary_uses_historical_prices_excludes_cancelled_and_future_sales_and_keeps_catalog_statistics_current(): void
     {
         $owner = $this->user('user');
@@ -99,7 +122,7 @@ class ProductOverviewTest extends TestCase
         $contact = Client::factory()->concessionaire()->for($manager, 'owner')->create(['dealership_id' => $owner->dealership_id]);
         Client::where('dealership_id', $owner->dealership_id)->where('customer_kind', 'person')->update(['concessionaire_id' => $contact->id]);
         $manager->update(['concessionaire_id' => $contact->id]);
-        $this->actingAs($manager)->get(route('workspace.products'))->assertOk()->assertSee('Nuevo producto')->assertViewHas('total', 2)->assertViewHas('soldMonthCents', 20000);
+        $this->actingAs($manager)->get(route('workspace.products'))->assertOk()->assertDontSee('Nuevo producto')->assertViewHas('total', 2)->assertViewHas('soldMonthCents', 20000);
         $this->actingAs($this->user())->get(route('workspace.products'))->assertOk()->assertSee('CATALOGO RESERVADO')->assertViewHas('total', 3)->assertViewHas('soldMonthCents', 30000);
         $this->get(route('workspace.products', ['dealership_id' => $owner->dealership_id]))->assertOk()->assertDontSee('CATALOGO RESERVADO')->assertViewHas('total', 2)->assertViewHas('soldMonthCents', 20000);
     }

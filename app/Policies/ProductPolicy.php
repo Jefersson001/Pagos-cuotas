@@ -7,14 +7,19 @@ use App\Models\User;
 
 class ProductPolicy
 {
+    public function viewAny(User $user): bool
+    {
+        return ! $user->isCustomer();
+    }
+
     public function view(User $user, Product $product): bool
     {
-        return ! $user->isHeadOffice() && ! $user->isCustomer() && ($user->isAdmin() || $user->dealership_id === $product->dealership_id);
+        return $this->viewAny($user) && ($user->isAdmin() || $user->dealership_id === $product->dealership_id);
     }
 
     public function create(User $user): bool
     {
-        return $user->canManageBusiness();
+        return ($user->isAdmin() || $user->isHeadOffice()) && $user->hasActiveAccess();
     }
 
     public function update(User $user, Product $product): bool

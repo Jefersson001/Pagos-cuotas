@@ -2,7 +2,7 @@
 @section('title','Resumen de productos')
 @section('subtitle','El estado de tu catálogo y los productos que impulsan tus ventas.')
 @section('actions')
-<a class="btn secondary" href="{{ route('products.index') }}">Ver catálogo</a>
+@can('viewAny',\App\Models\Product::class)<a class="btn secondary" href="{{ route('products.index') }}">Ver catálogo</a>@endcan
 @can('create',\App\Models\Product::class)<a class="btn primary" href="{{ route('products.create') }}"><i data-lucide="plus"></i>Nuevo producto</a>@endcan
 @endsection
 @section('content')
@@ -48,7 +48,7 @@
 <div class="product-summary-types">
 @foreach($types as $type=>$group)<div><div><span class="product-summary-type-icon"><i data-lucide="{{ match($type){'vehicle'=>'car','service'=>'wrench',default=>'package'} }}"></i></span><span><strong>{{ $group['label'] }}</strong><small>{{ $group['active'] }} {{ $group['active']===1?'activo':'activos' }}</small></span><b>{{ $group['total'] }}</b></div><div class="product-summary-type-track"><span style="width:{{ $total>0?round($group['total']/$total*100,2):0 }}%"></span></div></div>@endforeach
 </div>
-<a class="product-summary-catalog-link" href="{{ route('products.index') }}">Explorar catálogo<i data-lucide="arrow-right"></i></a>
+@can('viewAny',\App\Models\Product::class)<a class="product-summary-catalog-link" href="{{ route('products.index') }}">Explorar catálogo<i data-lucide="arrow-right"></i></a>@endcan
 </section>
 <section class="card">
 <div class="product-summary-section-heading"><div><h2>Precios y planes</h2><p>Condiciones de los productos activos.</p></div><i data-lucide="calculator"></i></div>

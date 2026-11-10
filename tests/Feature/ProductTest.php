@@ -116,6 +116,64 @@ class ProductTest extends TestCase
         $this->actingAs($stranger)->get(route('products.options', ['client_id' => $client->id]))->assertForbidden();
     }
 
+    public function test_head_office_manages_only_its_organization_catalog(): void
+    {
+        $company = Dealership::factory()->create(['organization_type' => 'head_office']);
+        $head = $this->user('head_office', $company->id);
+        $foreign = Product::factory()->create(['name' => 'CATALOGO AJENO']);
+        $values = ['product_type' => 'general', 'name' => 'Producto central', 'price' => '100.00', 'cash_price' => '90.00', 'initial_amount' => '20.00', 'installment_count' => 4, 'active' => 1];
+        $this->actingAs($head)->get(route('home'))->assertOk()->assertViewHas('modules', fn ($modules) => isset($modules['products']) && $modules['products']['route'] === 'workspace.products');
+        $this->get(route('products.create'))->assertOk();
+        $this->post(route('products.store'), $values + ['dealership_id' => $foreign->dealership_id])->assertForbidden();
+        $this->post(route('products.store'), $values)->assertSessionHasNoErrors();
+        $product = Product::where('name', 'Producto central')->firstOrFail();
+        $this->assertSame($company->id, $product->dealership_id);
+        $this->assertSame($head->id, $product->user_id);
+        $this->get(route('products.index', ['dealership_id' => $foreign->dealership_id]))->assertOk()->assertSee($product->name)->assertDontSee('CATALOGO AJENO');
+        $this->get(route('products.show', $product))->assertOk()->assertSee('Duplicar');
+        $this->get(route('products.edit', $product))->assertOk();
+        $this->put(route('products.update', $product), array_replace($values, ['price' => '120.00']))->assertSessionHasNoErrors();
+        $this->assertSame('120.00', $product->fresh()->price);
+        $this->get(route('records.duplicate', ['type' => 'product', 'id' => $product->id]))->assertRedirect(route('products.create'));
+        foreach (['products.show', 'products.edit'] as $route) {
+            $this->get(route($route, $foreign))->assertForbidden();
+        }
+        $this->put(route('products.update', $foreign), $values)->assertForbidden();
+        $this->delete(route('products.destroy', $foreign))->assertForbidden();
+        $this->get(route('records.duplicate', ['type' => 'product', 'id' => $foreign->id]))->assertForbidden();
+        $this->delete(route('records.destroy', ['type' => 'product', 'id' => $product->id]))->assertRedirect(route('products.index'));
+        $this->assertModelMissing($product);
+        $this->assertModelExists($foreign);
+    }
+
+    public function test_concessionaire_reads_catalog_and_selects_products_for_sales_without_write_access(): void
+    {
+        $company = Dealership::factory()->create(['organization_type' => 'head_office']);
+        $head = $this->user('head_office', $company->id);
+        $dealer = Client::factory()->concessionaire()->create(['dealership_id' => $company->id]);
+        $manager = $this->user('dealership_admin', $company->id);
+        $manager->update(['concessionaire_id' => $dealer->id]);
+        $client = Client::factory()->for($manager, 'owner')->create(['dealership_id' => $company->id, 'concessionaire_id' => $dealer->id]);
+        $product = Product::factory()->create(['user_id' => $head->id, 'dealership_id' => $company->id, 'name' => 'Catalogo de casa matriz']);
+        $foreign = Product::factory()->create(['name' => 'PRODUCTO AJENO']);
+        $this->actingAs($manager)->get(route('products.index'))->assertOk()->assertSee($product->name)->assertDontSee('Nuevo producto')->assertDontSee('PRODUCTO AJENO')->assertDontSee(route('products.edit', $product));
+        $this->get(route('products.show', $product))->assertOk()->assertSee('Solo lectura')->assertSee('class="record-fields" disabled', false)->assertDontSee('Guardar producto')->assertDontSee('Duplicar')->assertDontSee('Eliminar registro');
+        $this->get(route('products.show', $foreign))->assertForbidden();
+        $this->get(route('home'))->assertOk()->assertViewHas('modules', fn ($modules) => $modules['products']['children'] === [['name' => 'Resumen', 'route' => 'workspace.products'], ['name' => 'Productos', 'route' => 'products.index']]);
+        $this->get(route('workspace.products'))->assertOk()->assertDontSee('Nuevo producto')->assertSee('Ver catálogo')->assertSee('Explorar catálogo');
+        $this->get(route('products.options', ['client_id' => $client->id]))->assertOk()->assertJsonPath('products.0.id', $product->id);
+        $this->get(route('products.create'))->assertForbidden();
+        $this->post(route('products.store'), ['name' => 'No permitido', 'price' => '100.00'])->assertForbidden();
+        $this->get(route('products.edit', $product))->assertForbidden();
+        $this->put(route('products.update', $product), ['price' => '0.01'])->assertForbidden();
+        $this->delete(route('products.destroy', $product))->assertForbidden();
+        $this->get(route('records.duplicate', ['type' => 'product', 'id' => $product->id]))->assertForbidden();
+        $this->delete(route('records.destroy', ['type' => 'product', 'id' => $product->id]))->assertForbidden();
+        $this->post(route('orders.store'), $this->data($client, [['product_id' => $product->id, 'quantity' => 1]]))->assertSessionHasNoErrors();
+        $this->assertSame($product->price, Order::firstOrFail()->total);
+        $this->assertDatabaseCount('products', 2);
+    }
+
     public function test_sale_uses_product_prices_and_sums_initials_by_quantity_without_receiving_money(): void
     {
         $user = $this->user('user', Dealership::first()->id);

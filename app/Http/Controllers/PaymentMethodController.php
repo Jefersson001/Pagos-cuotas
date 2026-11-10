@@ -14,9 +14,9 @@ use Illuminate\View\View;
 
 class PaymentMethodController extends Controller
 {
-    private function authorizeAdmin(Request $request, ?PaymentMethod $method = null): void
+    private function authorizeManagement(Request $request, ?PaymentMethod $method = null): void
     {
-        abort_unless($request->user()->canManageBusiness(), 403);
+        abort_unless($request->user()->canManagePaymentMethods(), 403);
         if ($method && ! $request->user()->isAdmin()) {
             abort_unless($method->dealership_id === $request->user()->dealership_id, 403);
         }
@@ -24,7 +24,7 @@ class PaymentMethodController extends Controller
 
     public function index(Request $request): View
     {
-        $this->authorizeAdmin($request);
+        $this->authorizeManagement($request);
         $request->validate(['q' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1']);
         $query = PaymentMethod::visibleTo($request->user())->with('dealership')->withCount(['receipts as payments_count' => fn ($query) => $query->visibleTo($request->user())]);
         if ($request->filled('q')) {
@@ -39,14 +39,14 @@ class PaymentMethodController extends Controller
 
     public function create(Request $request): View
     {
-        $this->authorizeAdmin($request);
+        $this->authorizeManagement($request);
 
         return view('admin.payment-methods.form', ['method' => new PaymentMethod(['active' => true])]);
     }
 
     public function show(Request $request, PaymentMethod $paymentMethod): View
     {
-        $this->authorizeAdmin($request, $paymentMethod);
+        $this->authorizeManagement($request, $paymentMethod);
 
         request()->session()->forget('_old_input');
 
@@ -55,32 +55,32 @@ class PaymentMethodController extends Controller
 
     public function edit(Request $request, PaymentMethod $paymentMethod): View
     {
-        $this->authorizeAdmin($request, $paymentMethod);
+        $this->authorizeManagement($request, $paymentMethod);
 
         return view('admin.payment-methods.form', ['method' => $paymentMethod]);
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $this->authorizeAdmin($request);
+        $this->authorizeManagement($request);
 
         return $this->save($request, new PaymentMethod);
     }
 
     public function update(Request $request, PaymentMethod $paymentMethod): RedirectResponse
     {
-        $this->authorizeAdmin($request, $paymentMethod);
+        $this->authorizeManagement($request, $paymentMethod);
 
         return $this->save($request, $paymentMethod);
     }
 
     private function save(Request $request, PaymentMethod $method): RedirectResponse
     {
-        $dealerId = DealershipContext::forWrite($request->user(), $request->filled('dealership_id') ? $request->integer('dealership_id') : null, $method->exists ? $method->dealership_id : null);
+        $dealerId = DealershipContext::forContactWrite($request->user(), $request->filled('dealership_id') ? $request->integer('dealership_id') : null, $method->exists ? $method->dealership_id : null);
         $values = $request->validate(['dealership_id' => 'nullable|integer|exists:dealerships,id', 'name' => ['required', 'string', 'max:80', Rule::unique('payment_methods')->where('dealership_id', $dealerId)->ignore($method->id)], 'active' => 'required|boolean']);
         $values['dealership_id'] = $dealerId;
         DB::transaction(function () use ($request, $method, $values) {
-            DealershipContext::forWrite($request->user(), null, $values['dealership_id']);
+            DealershipContext::forContactWrite($request->user(), null, $values['dealership_id']);
             if ($method->exists) {
                 $method->setRawAttributes(PaymentMethod::lockForUpdate()->findOrFail($method->id)->getAttributes(), true);
             }
@@ -94,10 +94,10 @@ class PaymentMethodController extends Controller
 
     public function destroy(Request $request, PaymentMethod $paymentMethod): RedirectResponse
     {
-        $this->authorizeAdmin($request, $paymentMethod);
+        $this->authorizeManagement($request, $paymentMethod);
         DB::transaction(function () use ($request, $paymentMethod) {
             $method = PaymentMethod::lockForUpdate()->findOrFail($paymentMethod->id);
-            $this->authorizeAdmin($request, $method);
+            $this->authorizeManagement($request, $method);
             if ($method->payments()->exists() || $method->receipts()->exists()) {
                 throw ValidationException::withMessages(['method' => 'Este método tiene pagos registrados y no se puede eliminar. Puedes desactivarlo desde su formulario.']);
             }

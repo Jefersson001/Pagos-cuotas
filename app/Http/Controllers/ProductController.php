@@ -21,6 +21,7 @@ class ProductController extends Controller
 {
     public function index(Request $r): View
     {
+        Gate::authorize('viewAny', Product::class);
         $r->validate(['q' => 'nullable|string|max:120', 'active' => 'nullable|in:0,1']);
         $query = Product::visibleTo($r->user())->with('dealership');
         if ($r->filled('q')) {
@@ -121,7 +122,7 @@ class ProductController extends Controller
                     $product->setRawAttributes(Product::lockForUpdate()->findOrFail($product->id)->getAttributes(), true);
                     Gate::authorize('update', $product);
                 }
-                $company = DealershipContext::forWrite($r->user(), $r->user()->isAdmin() ? ($v['dealership_id'] ?? null) : null, $product->exists ? $product->dealership_id : null);
+                $company = DealershipContext::forContactWrite($r->user(), ($r->user()->isAdmin() || $r->user()->isHeadOffice()) ? ($v['dealership_id'] ?? null) : null, $product->exists ? $product->dealership_id : null);
                 $before = $product->getAttributes();
                 if (! $product->exists && ! empty($v['duplicate_product_id'])) {
                     $source = Product::findOrFail($v['duplicate_product_id']);
@@ -159,7 +160,7 @@ class ProductController extends Controller
         DB::transaction(function () use ($r, $product) {
             $product = Product::lockForUpdate()->findOrFail($product->id);
             Gate::authorize('delete', $product);
-            DealershipContext::forWrite($r->user(), null, $product->dealership_id);
+            DealershipContext::forContactWrite($r->user(), null, $product->dealership_id);
             if ($product->items()->exists()) {
                 throw ValidationException::withMessages(['product' => 'Este producto tiene ventas registradas. Puedes desactivarlo para conservar el historial.']);
             }$before = $product->getAttributes();

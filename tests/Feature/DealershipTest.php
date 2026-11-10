@@ -183,9 +183,10 @@ class DealershipTest extends TestCase
         $this->actingAs($manager)->get(route('audit'))->assertOk()->assertSee('LOCAL_EVENT')->assertDontSee('FOREIGN_EVENT');
         DB::table('dealership_settings')->insert(['dealership_id' => $a->id, 'key' => 'business_name', 'value' => 'Nombre anterior']);
         $this->get(route('workspace.sales'))->assertOk()->assertViewHas('businessName', $a->name);
-        $this->post(route('payment-methods.store'), ['name' => 'Método exclusivo A', 'active' => 1])->assertSessionHasNoErrors();
-        $this->actingAs($this->user('dealership_admin', $b))->get(route('payment-methods.index'))->assertOk()->assertDontSee('Método exclusivo A');
-        $this->post(route('payment-methods.store'), ['name' => 'Método exclusivo A', 'active' => 1])->assertSessionHasNoErrors();
+        $this->post(route('payment-methods.store'), ['name' => 'Método exclusivo A', 'active' => 1])->assertForbidden();
+        $this->actingAs($admin)->post(route('payment-methods.store'), ['name' => 'Método exclusivo A', 'active' => 1, 'dealership_id' => $a->id])->assertSessionHasNoErrors();
+        $this->get(route('payment-methods.index', ['dealership_id' => $b->id]))->assertOk()->assertDontSee('Método exclusivo A');
+        $this->post(route('payment-methods.store'), ['name' => 'Método exclusivo A', 'active' => 1, 'dealership_id' => $b->id])->assertSessionHasNoErrors();
     }
 
     public function test_wrong_dealership_payment_method_is_rejected_without_changing_balances(): void

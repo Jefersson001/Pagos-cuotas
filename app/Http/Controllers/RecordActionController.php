@@ -36,7 +36,7 @@ class RecordActionController extends Controller
         } elseif ($type === 'company') {
             abort_unless($actor->canManageOrganizations() && ($actor->isAdmin() || ($record->parent_id === $actor->dealership_id && $record->organization_type === 'concessionaire')), 403);
         } elseif ($type === 'method') {
-            abort_unless($actor->canManageBusiness() && ($actor->isAdmin() || $record->dealership_id === $actor->dealership_id), 403);
+            abort_unless($actor->canManagePaymentMethods() && ($actor->isAdmin() || $record->dealership_id === $actor->dealership_id), 403);
         } else {
             Gate::forUser($actor)->authorize('update', $record);
         }

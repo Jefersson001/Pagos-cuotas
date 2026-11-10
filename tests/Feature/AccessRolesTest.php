@@ -89,7 +89,7 @@ class AccessRolesTest extends TestCase
         $actor = $this->actor('head_office', $data['hq']);
         $contact = Client::factory()->concessionaire()->for($data['ownerA'], 'owner')->create(['dealership_id' => $data['hq']->id, 'name' => 'Concesionario de la matriz']);
         $this->actingAs($actor)->get(route('home'))->assertOk()->assertSee('Tu espacio de trabajo')
-            ->assertViewHas('modules', fn ($modules) => array_keys($modules) === ['head-office', 'payments', 'reports', 'settings'] && isset($modules['head-office']['description']))
+            ->assertViewHas('modules', fn ($modules) => array_keys($modules) === ['head-office', 'products', 'payments', 'reports', 'settings'] && isset($modules['head-office']['description']))
             ->assertSee('Registra tus concesionarios')->assertDontSee('Programa ventas, organiza cuotas');
         $response = $this->get(route('head-office.overview', ['dealership_id' => $data['foreign']->id, 'client_id' => $data['clientA']->id]))->assertOk();
         $rows = $response->viewData('rows');
@@ -101,7 +101,7 @@ class AccessRolesTest extends TestCase
         $response->assertSee($contact->name)->assertDontSee('Sucursal A')->assertDontSee('CLIENTE SECRETO')->assertDontSee('SUCURSAL RESERVADA')->assertDontSee('NOTA INTERNA');
         $this->get(route('clients.index'))->assertOk()->assertSee($contact->name)->assertDontSee('CLIENTE SECRETO');
         $this->get(route('users'))->assertOk();
-        foreach (['workspace.customers', 'workspace.sales', 'orders.index', 'audit', 'products.index', 'orders.client-options'] as $route) {
+        foreach (['workspace.customers', 'workspace.sales', 'orders.index', 'audit', 'orders.client-options'] as $route) {
             $this->get(route($route, ['export' => 'csv']))->assertForbidden();
         }
         $this->get(route('clients.show', $data['clientA']))->assertForbidden();

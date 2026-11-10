@@ -14,13 +14,13 @@ $activeModule=collect($workspaceModules)->first(fn($module)=>request()->routeIs(
 @if($activeModule)<div class="workspace-navigation"><div class="workspace-navigation-inner"><details class="workspace-switcher"><summary><i data-lucide="layers"></i>Módulos</summary><div class="workspace-module-menu">@foreach($workspaceModules as $module)<a href="{{ route($module['route']) }}"><i data-lucide="{{ $module['icon'] }}"></i>{{ $module['name'] }}</a>@endforeach</div></details>
 <nav aria-label="Secciones de {{ $activeModule['name'] }}">
 @foreach($activeModule['children']??[['name'=>$activeModule['name'],'route'=>$activeModule['route']]] as $child)
-    @if((empty($child['system'])||auth()->user()->isAdmin())&&(empty($child['manage'])||auth()->user()->canManageUsers())&&(empty($child['business'])||auth()->user()->canManageBusiness())&&(empty($child['organization'])||auth()->user()->canManageOrganizations()))
+    @if((empty($child['system'])||auth()->user()->isAdmin())&&(empty($child['manage'])||auth()->user()->canManageUsers())&&(empty($child['business'])||auth()->user()->canManageBusiness())&&(empty($child['payment_methods'])||auth()->user()->canManagePaymentMethods())&&(empty($child['organization'])||auth()->user()->canManageOrganizations()))
         @if(!empty($child['children']))
             <details class="workspace-nav-group" x-data @click.outside="$el.removeAttribute('open')" @keydown.escape="$el.removeAttribute('open');$el.querySelector('summary').focus()">
                 <summary @class(['is-active'=>request()->routeIs(...$child['patterns'])])>{{ $child['name'] }}<i data-lucide="chevron-right" aria-hidden="true"></i></summary>
                 <div class="workspace-nav-submenu">
                     @foreach($child['children'] as $entry)
-                        @if(empty($entry['business'])||auth()->user()->canManageBusiness())
+                        @if((empty($entry['business'])||auth()->user()->canManageBusiness())&&(empty($entry['payment_methods'])||auth()->user()->canManagePaymentMethods()))
                             <a href="{{ route($entry['route']) }}" @class(['is-active'=>request()->routeIs(\Illuminate\Support\Str::beforeLast($entry['route'],'.').'.*')])>{{ $entry['name'] }}</a>
                         @endif
                     @endforeach

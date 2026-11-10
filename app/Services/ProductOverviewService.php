@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\Product;
 use App\Support\Money;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -18,7 +19,16 @@ class ProductOverviewService
             $monthStart = $now->copy()->startOfMonth();
             $products = Product::visibleTo($request->user())->orderBy('name')->get();
             $visibleProducts = Product::visibleTo($request->user())->select('products.id');
-            $visibleOrders = Order::visibleTo($request->user())->where('cancelled', false)->where('created_at', '<=', $now)->select('orders.id');
+            $visibleOrders = Order::query();
+            if ($request->user()->isHeadOffice()) {
+                $companyId = $request->user()->dealership_id;
+                $visibleOrders->where('dealership_id', $companyId)->whereHas('client', fn (Builder $clients): Builder => $clients
+                    ->where('dealership_id', $companyId)->where('customer_kind', 'person')
+                    ->whereHas('concessionaire', fn (Builder $dealers): Builder => $dealers->where('dealership_id', $companyId)->where('customer_kind', 'dealership')));
+            } else {
+                $visibleOrders->visibleTo($request->user());
+            }
+            $visibleOrders->where('cancelled', false)->where('created_at', '<=', $now)->select('orders.id');
             $items = DB::table('order_items')->join('orders', 'orders.id', '=', 'order_items.order_id')
                 ->whereIn('order_items.product_id', $visibleProducts)->whereIn('orders.id', $visibleOrders);
             $sales = (clone $items)->select('order_items.product_id')

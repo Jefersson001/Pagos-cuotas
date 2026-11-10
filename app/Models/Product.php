@@ -52,7 +52,7 @@ class Product extends OwnedModel
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if ($user->isCustomer() || $user->isHeadOffice()) {
+        if ($user->isCustomer()) {
             return $query->whereRaw('1=0');
         }
         $id = DealershipContext::id($user);

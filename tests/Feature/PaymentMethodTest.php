@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Client;
+use App\Models\Dealership;
 use App\Models\PaymentMethod;
 use App\Models\Role;
 use App\Models\User;
@@ -51,6 +52,61 @@ class PaymentMethodTest extends TestCase
             $this->$verb(route($route, $parameters))->assertForbidden();
         }
         $this->assertModelExists($method);
+    }
+
+    public function test_head_office_manages_only_its_organization_payment_methods(): void
+    {
+        $this->seed();
+        $company = Dealership::factory()->create(['organization_type' => 'head_office']);
+        $head = User::factory()->create(['role_id' => Role::where('name', 'head_office')->value('id'), 'dealership_id' => $company->id]);
+        $foreign = PaymentMethod::firstOrFail();
+        $this->actingAs($head)->get(route('receipts.index'))->assertOk()->assertSee(route('payment-methods.index'), false);
+        $this->get(route('payment-methods.create'))->assertOk();
+        $this->post(route('payment-methods.store'), ['name' => 'Metodo central', 'active' => 1, 'dealership_id' => $foreign->dealership_id])->assertForbidden();
+        $this->post(route('payment-methods.store'), ['name' => 'Metodo central', 'active' => 1])->assertSessionHasNoErrors();
+        $method = PaymentMethod::where('name', 'Metodo central')->firstOrFail();
+        $this->assertSame($company->id, $method->dealership_id);
+        $this->get(route('payment-methods.index', ['dealership_id' => $foreign->dealership_id]))->assertOk()->assertViewHas('methods', fn ($methods) => $methods->total() === 1 && $methods->first()->id === $method->id);
+        $this->get(route('payment-methods.show', $method))->assertOk()->assertSee('Duplicar');
+        $this->get(route('payment-methods.edit', $method))->assertOk();
+        $this->put(route('payment-methods.update', $method), ['name' => 'Metodo actualizado', 'active' => 0])->assertSessionHasNoErrors();
+        $this->assertFalse($method->fresh()->active);
+        $this->get(route('records.duplicate', ['type' => 'method', 'id' => $method->id]))->assertRedirect(route('payment-methods.create'));
+        $this->get(route('payment-methods.show', $foreign))->assertForbidden();
+        $this->get(route('payment-methods.edit', $foreign))->assertForbidden();
+        $this->put(route('payment-methods.update', $foreign), ['name' => 'No permitido', 'active' => 0])->assertForbidden();
+        $this->delete(route('payment-methods.destroy', $foreign))->assertForbidden();
+        $this->get(route('records.duplicate', ['type' => 'method', 'id' => $foreign->id]))->assertForbidden();
+        $this->delete(route('records.destroy', ['type' => 'method', 'id' => $method->id]))->assertRedirect(route('payment-methods.index'));
+        $this->assertModelMissing($method);
+        $this->assertModelExists($foreign);
+    }
+
+    public function test_concessionaire_cannot_manage_methods_but_can_select_them_when_registering_payments(): void
+    {
+        $this->seed();
+        $company = Dealership::factory()->create(['organization_type' => 'head_office']);
+        $contact = Client::factory()->concessionaire()->create(['dealership_id' => $company->id]);
+        $dealer = User::factory()->create(['role_id' => Role::where('name', 'dealership_admin')->value('id'), 'dealership_id' => $company->id, 'concessionaire_id' => $contact->id]);
+        $client = Client::factory()->for($dealer, 'owner')->create(['dealership_id' => $company->id, 'concessionaire_id' => $contact->id]);
+        $method = PaymentMethod::create(['dealership_id' => $company->id, 'name' => 'Transferencia central', 'active' => true]);
+        $this->actingAs($dealer)->get(route('workspace.sales'))->assertOk()->assertDontSee(route('payment-methods.index'), false);
+        $this->get(route('receipts.index'))->assertOk()->assertDontSee(route('payment-methods.index'), false);
+        foreach (['payment-methods.index', 'payment-methods.create'] as $route) {
+            $this->get(route($route))->assertForbidden();
+        }
+        foreach (['payment-methods.show', 'payment-methods.edit'] as $route) {
+            $this->get(route($route, $method))->assertForbidden();
+        }
+        $this->post(route('payment-methods.store'), ['name' => 'No permitido', 'active' => 1])->assertForbidden();
+        $this->put(route('payment-methods.update', $method), ['name' => 'No permitido', 'active' => 0])->assertForbidden();
+        $this->delete(route('payment-methods.destroy', $method))->assertForbidden();
+        $this->get(route('records.duplicate', ['type' => 'method', 'id' => $method->id]))->assertForbidden();
+        $this->delete(route('records.destroy', ['type' => 'method', 'id' => $method->id]))->assertForbidden();
+        $this->get(route('receipts.account', ['client_id' => $client->id]))->assertOk()->assertJsonPath('methods.0.id', $method->id);
+        $this->post(route('receipts.store'), ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'payment_method_id' => $method->id, 'amount' => '10.00'])->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('receipts', ['client_id' => $client->id, 'payment_method_id' => $method->id, 'approval_status' => 'pending']);
+        $this->assertTrue($method->fresh()->active);
     }
 
     public function test_invalid_names_states_and_duplicate_names_are_rejected(): void

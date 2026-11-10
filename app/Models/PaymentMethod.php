@@ -18,7 +18,7 @@ class PaymentMethod extends Model
     {
         static::creating(function (PaymentMethod $method): void {
             if (! $method->dealership_id) {
-                $method->dealership_id = auth()->check() ? DealershipContext::forWrite(auth()->user()) : Dealership::orderBy('id')->value('id');
+                $method->dealership_id = auth()->check() ? DealershipContext::forContactWrite(auth()->user()) : Dealership::orderBy('id')->value('id');
             }
         });
     }
@@ -30,7 +30,7 @@ class PaymentMethod extends Model
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if ($user->isCustomer() || $user->isHeadOffice()) {
+        if ($user->isCustomer()) {
             return $query->whereRaw('1=0');
         }
         $id = DealershipContext::id($user);
