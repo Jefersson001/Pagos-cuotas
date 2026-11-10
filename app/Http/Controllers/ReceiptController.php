@@ -124,7 +124,7 @@ class ReceiptController extends Controller
     private function detail(Receipt $receipt, bool $editing): View
     {
         Gate::authorize('view', $receipt);
-        $receipt->load(['client.concessionaire', 'method', 'recorder', 'approver', 'sourceOrder', 'intendedInstallment', 'applications.order', 'applications.recorder', 'applications.allocations.installment']);
+        $receipt->load(['client.concessionaire', 'method', 'recorder', 'approver', 'rejecter', 'voider', 'sourceOrder', 'intendedInstallment', 'applications.order', 'applications.recorder', 'applications.allocations.installment']);
         $orders = $receipt->client->orders()->where('cancelled', false)->with(['payments', 'installments.allocations.payment'])->get()->filter(fn ($o) => $o->balance_cents > 0);
         $approvalPreview = app(ReceiptService::class)->approvalPreview($receipt);
         $duplicateReference = filled($receipt->reference) && Receipt::where('dealership_id', $receipt->dealership_id)->where('payment_method_id', $receipt->payment_method_id)->where('reference', $receipt->reference)->where('id', '!=', $receipt->id)->whereNull('voided_at')->where('approval_status', '!=', 'rejected')->exists();

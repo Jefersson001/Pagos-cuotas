@@ -4,6 +4,7 @@ use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Str;
 
 Artisan::command('sales:admin {email} {--name=Administrador}', function () {
@@ -28,3 +29,5 @@ Artisan::command('sales:admin {email} {--name=Administrador}', function () {
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Schedule::command('app:backup --if-due')->hourly()->withoutOverlapping();

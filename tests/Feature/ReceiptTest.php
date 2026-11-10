@@ -119,7 +119,7 @@ class ReceiptTest extends TestCase
         $first = $this->receive($user, $client, '80.00');
         $second = $this->receive($user, $client, '220.00');
         $data = ['token' => (string) Str::uuid(), 'amount' => '250.00', 'payment_source' => 'credit'];
-        $this->actingAs($user)->get(route('orders.show', $order))->assertOk()->assertSee('Saldo a favor disponible:')->assertSee('Nuevo pago');
+        $this->actingAs($user)->get(route('orders.show', $order))->assertOk()->assertSee('Saldo a favor disponible:')->assertSee('Nuevo pago')->assertSee('Usar saldo a favor');
         $this->post(route('orders.pay', $order), $data)->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
         $this->post(route('orders.pay', $order), $data)->assertSessionHasNoErrors();

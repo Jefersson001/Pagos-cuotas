@@ -92,7 +92,7 @@ Alpine.data('paymentDialog',autoOpen=>({
  submitting:false,
  fillInstallmentAmount(){const option=this.$refs.installment?.selectedOptions[0];const remaining=option?.value?Number(option.dataset.remaining):this.orderBalance;this.$refs.amount.value=((this.newPayment?remaining:Math.min(remaining,this.availableCredit))/100).toFixed(2);},
  init(){if(autoOpen||window.location.hash==='#registrar-pago'){if(window.location.hash==='#registrar-pago')window.history.replaceState({},'',window.location.pathname+window.location.search);this.$nextTick(()=>this.open());}},
- open(){const dialog=document.getElementById('payment-dialog');if(!dialog.open)dialog.showModal();document.body.classList.add('modal-open');this.$nextTick(()=>dialog.querySelector('[name=amount]').focus());},
+ open(source){if(source==='credit'||source==='new'){this.newPayment=source==='new';this.allowCredit=false;this.$nextTick(()=>this.fillInstallmentAmount());}const dialog=document.getElementById('payment-dialog');if(!dialog.open)dialog.showModal();document.body.classList.add('modal-open');this.$nextTick(()=>dialog.querySelector('[name=amount]').focus());},
  close(){if(!this.submitting)document.getElementById('payment-dialog').close();},
  closed(){document.body.classList.remove('modal-open');}
 }));

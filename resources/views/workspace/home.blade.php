@@ -26,6 +26,9 @@
         </label>
         </div>
     </div>
+    @if(auth()->user()->canOperateFinancial())
+    <nav class="portfolio-shortcuts home-priorities" aria-label="Pendientes de trabajo"><a href="{{ route('collections',['filter'=>'overdue']) }}"><i data-lucide="alarm-clock"></i>Revisar vencimientos</a><a href="{{ route('receipts.index',['state'=>'credit','from'=>'1900-01-01','to'=>today()->toDateString(),'date_mode'=>'custom']) }}"><i data-lucide="wallet"></i>Aplicar saldo disponible</a></nav>
+    @endif
     <div class="module-grid">
         @foreach($modules as $module)
             <a class="module-card" href="{{ route($module['route']) }}" x-show="@js(mb_strtolower($module['name'])).includes(search.toLowerCase().trim())" data-module-card>

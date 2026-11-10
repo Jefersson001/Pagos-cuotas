@@ -11,6 +11,7 @@ $money=fn($cents)=>'$'.number_format($cents/100,2);
 $allDates=['from'=>'1900-01-01','to'=>$updatedAt->toDateString(),'date_mode'=>'custom'];
 $allCredit=array_merge($allDates,['state'=>'credit']);
 @endphp
+@if($overdueCents>0 || $dueSoonCents>0)<nav class="portfolio-shortcuts module-alerts" aria-label="Compromisos que requieren atención">@if($overdueCents>0)<a href="{{ route('collections',['filter'=>'overdue']) }}"><i data-lucide="alarm-clock"></i>{{ $overdueCount }} compromisos vencidos · {{ $money($overdueCents) }}</a>@endif @if($dueSoonCents>0)<a href="{{ route('collections',['filter'=>'pending','from'=>today()->toDateString(),'to'=>$updatedAt->copy()->startOfDay()->addDays(6)->toDateString()]) }}"><i data-lucide="calendar-clock"></i>Vencen en 7 días · {{ $money($dueSoonCents) }}</a>@endif</nav>@endif
 <div class="customer-overview-period"><span><i data-lucide="calendar-days"></i>Movimientos del {{ $monthStart->format('d/m/Y') }} al {{ $updatedAt->format('d/m/Y') }} · Saldos actuales de toda la cartera</span><small>Actualizado a las {{ $updatedAt->format('H:i') }}</small></div>
 <div class="product-summary-kpis" data-sales-overview>
 @foreach([

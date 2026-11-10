@@ -44,6 +44,45 @@ class ReceiptApprovalTest extends TestCase
         return ['token' => (string) Str::uuid(), 'client_id' => $data['client']->id, 'payment_method_id' => $data['method']->id, 'amount' => $amount];
     }
 
+    public function test_portfolio_shortcuts_filter_accounts_without_exposing_other_concessionaires(): void
+    {
+        $data = $this->portfolio();
+        $this->portfolio();
+        $empty = Client::factory()->for($data['owner'], 'owner')->create(['dealership_id' => $data['company']->id, 'concessionaire_id' => $data['dealer']->id]);
+        $data['order']->installments()->where('number', 0)->update(['due_date' => today()->subDay()]);
+        $this->actingAs($data['owner'])->post(route('receipts.store'), $this->payment($data))->assertSessionHasNoErrors();
+        $receipt = Receipt::firstOrFail();
+        $this->actingAs($data['head'])->post(route('receipts.approve', $receipt))->assertSessionHasNoErrors();
+
+        $this->actingAs($data['owner']);
+        foreach (['debt', 'overdue', 'credit', 'due_soon', 'received', 'sales'] as $filter) {
+            $this->get(route('clients.index', ['account_state' => $filter, 'customer_kind' => 'person']))->assertOk()
+                ->assertViewHas('clients', fn ($clients) => $clients->modelKeys() === [$data['client']->id]);
+        }
+        $this->get(route('clients.index', ['account_state' => 'credit', 'q' => $empty->name]))->assertOk()
+            ->assertViewHas('clients', fn ($clients) => $clients->isEmpty());
+        $this->get(route('clients.index', ['account_state' => 'unknown']))->assertSessionHasErrors('account_state');
+        $this->get(route('workspace.customers'))->assertOk()
+            ->assertSee(route('clients.index', ['customer_kind' => 'person', 'account_state' => 'overdue']));
+        $this->actingAs($data['customer'])->get(route('clients.index', ['account_state' => 'credit']))->assertForbidden();
+        $this->actingAs($data['head'])->get(route('clients.index', ['account_state' => 'credit']))->assertForbidden();
+    }
+
+    public function test_head_office_home_keeps_scoped_pending_count_without_summary_panels(): void
+    {
+        $data = $this->portfolio();
+        $foreign = $this->portfolio();
+        $this->actingAs($data['owner'])->post(route('receipts.store'), $this->payment($data))->assertSessionHasNoErrors();
+        $this->actingAs($foreign['owner'])->post(route('receipts.store'), $this->payment($foreign))->assertSessionHasNoErrors();
+
+        $this->actingAs($data['head'])->get(route('home'))->assertOk()
+            ->assertViewHas('pendingPayments', 1)
+            ->assertSee('Revisar pagos')
+            ->assertDontSee('Pagos por revisar')->assertDontSee('Cartera por concesionario');
+        $this->actingAs($data['owner'])->get(route('home'))->assertOk()
+            ->assertSee('Aplicar saldo disponible')->assertDontSee('Cartera por concesionario');
+    }
+
     public function test_sale_payment_waits_for_approval_and_is_applied_exactly_once(): void
     {
         $data = $this->portfolio();
@@ -104,6 +143,7 @@ class ReceiptApprovalTest extends TestCase
         $this->post(route('receipts.reject', $receipt), ['reason' => 'Comprobante incorrecto'])->assertSessionHasNoErrors();
         $this->assertSame('rejected', $receipt->fresh()->approval_status);
         $this->assertSame($data['head']->id, $receipt->fresh()->rejected_by);
+        $this->get(route('receipts.show', $receipt))->assertOk()->assertSee('Historial del pago')->assertSee($data['head']->name)->assertSee('Comprobante incorrecto');
         $this->assertSame('Comprobante incorrecto', $receipt->fresh()->rejection_reason);
         $this->post(route('receipts.approve', $receipt))->assertSessionHasErrors('amount');
         $this->assertSame(0, $data['client']->fresh()->credit_cents);

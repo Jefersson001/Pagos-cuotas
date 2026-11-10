@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\Dealership;
 use App\Models\User;
 use App\Services\Audit;
+use App\Services\CustomerOverviewService;
 use App\Services\DealershipContext;
 use App\Services\HeadOfficeOverviewService;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,9 +20,9 @@ use Illuminate\View\View;
 
 class ClientController extends Controller
 {
-    public function index(Request $r)
+    public function index(Request $r, CustomerOverviewService $overview): View
     {
-        $r->validate(['q' => 'nullable|string|max:255', 'customer_kind' => 'nullable|in:person,dealership', 'business_type' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1']);
+        $r->validate(['q' => 'nullable|string|max:255', 'customer_kind' => 'nullable|in:person,dealership', 'business_type' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1', 'account_state' => 'nullable|in:debt,overdue,credit,due_soon,received,sales']);
         $customerKind = $r->input('customer_kind', $r->route('customer_kind'));
         if ($r->user()->isHeadOffice()) {
             $customerKind = 'dealership';
@@ -41,6 +42,12 @@ class ClientController extends Controller
         }
         if ($r->filled('active')) {
             $q->where('active', $r->boolean('active'));
+        }
+        if ($r->filled('account_state')) {
+            abort_if($r->user()->isHeadOffice(), 403);
+            $groups = $overview->build($r)['groups'];
+            $ids = collect($groups)->flatMap(fn (array $group): array => $group['account_ids'][$r->input('account_state')])->all();
+            $q->whereIn('id', $ids);
         }
 
         return view('clients.index', ['clients' => $q->latest()->paginate(15)->withQueryString(), 'customerKind' => $customerKind]);

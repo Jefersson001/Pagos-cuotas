@@ -88,6 +88,14 @@ class CustomerOverviewService
                     'unapplied_receipts' => $rows->sum('unapplied_receipts'),
                     'overdue_percent' => $debt > 0 ? min(100, (int) round($overdue / $debt * 100)) : 0,
                     'attention' => $attention,
+                    'account_ids' => [
+                        'debt' => $rows->where('debt_cents', '>', 0)->pluck('client.id')->all(),
+                        'overdue' => $rows->where('overdue_cents', '>', 0)->pluck('client.id')->all(),
+                        'credit' => $rows->where('credit_cents', '>', 0)->pluck('client.id')->all(),
+                        'due_soon' => $rows->where('due_soon_cents', '>', 0)->pluck('client.id')->all(),
+                        'received' => $rows->where('received_month_cents', '>', 0)->pluck('client.id')->all(),
+                        'sales' => $rows->where('sales_month', '>', 0)->pluck('client.id')->all(),
+                    ],
                 ];
             }
 
