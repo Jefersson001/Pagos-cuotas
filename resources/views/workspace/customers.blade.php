@@ -10,7 +10,7 @@
 <header class="customer-overview-heading"><div class="customer-overview-identity"><span class="module-icon"><i data-lucide="{{ $kind==='person'?'users-round':'shopping-bag' }}"></i></span><div><h2>{{ $group['title'] }}</h2><p>{{ $group['active'] }} activos · {{ $group['total']-$group['active'] }} inactivos</p></div></div><a class="btn secondary" href="{{ route($group['create_route'],$group['route_parameters']) }}"><i data-lucide="plus"></i>Nuevo</a></header>
 <div class="customer-overview-count"><strong data-contact-total>{{ $group['total'] }}</strong><div><span>Registros en total</span><small>{{ $group['new_this_month'] }} nuevos este mes</small></div><span class="customer-overview-orders">{{ $group['open_orders'] }} ventas con saldo</span></div>
 <div class="customer-overview-metrics">
-<div><span>Saldo por cobrar</span><strong data-metric="debt">{{ $money($group['debt_cents']) }}</strong><small>{{ $group['with_debt'] }} con deuda pendiente</small></div>
+<div class="customer-metric-primary"><span>Saldo por cobrar</span><strong data-metric="debt">{{ $money($group['debt_cents']) }}</strong><small>{{ $group['with_debt'] }} con deuda pendiente</small></div>
 <div><span>Cobrado este mes</span><strong data-metric="received">{{ $money($group['received_month_cents']) }}</strong><small>Dinero recibido confirmado</small></div>
 <div class="customer-overview-overdue"><span>Deuda vencida</span><strong data-metric="overdue">{{ $money($group['overdue_cents']) }}</strong><small>{{ $group['with_overdue'] }} con cuotas vencidas</small></div>
 <div><span>Saldo a favor</span><strong data-metric="credit">{{ $money($group['credit_cents']) }}</strong><small>{{ $group['with_credit'] }} con crédito disponible</small></div>

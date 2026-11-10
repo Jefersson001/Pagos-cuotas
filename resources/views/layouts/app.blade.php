@@ -34,7 +34,7 @@ $activeModule=collect($workspaceModules)->first(fn($module)=>request()->routeIs(
 </nav></div></div>@endif
 <main class="workspace-main">
 @if($currentDealership && !$currentDealership->active)<div class="notice error" data-dealership-warning>La empresa está inactiva. Puedes consultar el historial.</div>@endif
-@if(!request()->routeIs('home'))<div class="page-heading"><div><a class="workspace-back" href="{{ route('home') }}">← Volver al inicio</a><h1>@yield('title')</h1><p class="subtitle">@yield('subtitle')</p></div><div class="page-actions" data-page-actions>@yield('actions')</div></div>@endif
+@if(!request()->routeIs('home'))<div class="page-heading"><div class="page-heading-copy"><div class="page-title-row"><a class="workspace-back" href="{{ route('home') }}" aria-label="Volver al inicio" title="Volver al inicio"><i data-lucide="arrow-left" aria-hidden="true"></i></a><h1>@yield('title')</h1></div>@if(request()->routeIs('*.show','portal.order','portal.receipt'))<p class="subtitle">@yield('subtitle')</p>@endif</div><div class="page-actions" data-page-actions>@yield('actions')</div></div>@endif
 @if(session('success'))<div class="notice success" role="status"><i data-lucide="circle-check"></i>{{ session('success') }}</div>@endif
 @if($errors->any())<div class="notice error" role="alert"><div><strong>Revisa la información</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div></div>@endif
 @yield('content')
