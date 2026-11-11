@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\ReceiptService;
 use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -24,6 +25,7 @@ class ReceiptTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
     }
 
     private function customer(): array
@@ -41,7 +43,7 @@ class ReceiptTest extends TestCase
 
     private function receive(User $user, Client $client, string $amount = '350.00'): Receipt
     {
-        $receipt = app(ReceiptService::class)->receive($user, $client->id, ['token' => (string) Str::uuid(), 'amount' => $amount, 'payment_method_id' => PaymentMethod::where('dealership_id', $client->dealership_id)->value('id')]);
+        $receipt = app(ReceiptService::class)->receive($user, $client->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => $amount, 'payment_method_id' => PaymentMethod::where('dealership_id', $client->dealership_id)->value('id')]);
         $this->approvePendingReceipts();
 
         return $receipt->fresh();
@@ -57,8 +59,8 @@ class ReceiptTest extends TestCase
         $voided = $this->receive($user, $client, '30.00');
         $voided->update(['voided_at' => now()]);
         $service = app(ReceiptService::class);
-        $service->apply($user, $partial, $order->id, ['token' => (string) Str::uuid(), 'amount' => '20.00']);
-        $service->apply($user, $full, $order->id, ['token' => (string) Str::uuid(), 'amount' => '50.00']);
+        $service->apply($user, $partial, $order->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '20.00']);
+        $service->apply($user, $full, $order->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '50.00']);
         $this->actingAs($user)->get(route('receipts.index', ['state' => 'partial']))->assertOk()->assertViewHas('receipts', fn ($rows) => $rows->total() === 1 && $rows->first()->id === $partial->id)->assertSee('Parcialmente aplicado');
         [$other] = $this->customer();
         $this->actingAs($other)->get(route('receipts.index', ['state' => 'partial']))->assertOk()->assertViewHas('receipts', fn ($rows) => $rows->total() === 0);
@@ -68,7 +70,7 @@ class ReceiptTest extends TestCase
     {
         [$user, $client] = $this->customer();
         $product = Product::factory()->create(['user_id' => $user->id, 'dealership_id' => $client->dealership_id, 'price' => '500.00', 'initial_amount' => '100.00']);
-        $data = ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'description' => 'Inicial pendiente', 'items' => [['product_id' => $product->id, 'description' => 'Moto', 'quantity' => 1, 'unit_price' => '500.00']], 'initial_amount' => '100.00', 'installment_count' => 4, 'frequency' => 'monthly', 'first_due' => today()->subMonth()->toDateString()];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $client->id, 'description' => 'Inicial pendiente', 'items' => [['product_id' => $product->id, 'description' => 'Moto', 'quantity' => 1, 'unit_price' => '500.00']], 'initial_amount' => '100.00', 'installment_count' => 4, 'frequency' => 'monthly', 'first_due' => today()->subMonth()->toDateString()];
         $this->actingAs($user)->post(route('orders.store'), $data)->assertSessionHasNoErrors();
         $order = Order::firstOrFail();
         $initial = $order->installments->firstWhere('number', 0);
@@ -82,11 +84,11 @@ class ReceiptTest extends TestCase
         $this->post(route('orders.store'), $data)->assertSessionHasNoErrors();
         $this->assertDatabaseCount('installment_schedules', 5);
         $this->get(route('collections'))->assertOk()->assertSee('Inicial');
-        $this->post(route('orders.pay', $order), ['token' => (string) Str::uuid(), 'amount' => '40.00', 'installment_id' => $initial->id, 'payment_method_id' => PaymentMethod::first()->id])->assertSessionHasNoErrors();
+        $this->post(route('orders.pay', $order), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '40.00', 'installment_id' => $initial->id, 'payment_method_id' => PaymentMethod::first()->id])->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
         $this->assertSame(6000, $initial->fresh()->remaining_cents);
         $receipt = $this->receive($user, $client, '60.00');
-        $this->post(route('orders.pay', $order), ['token' => (string) Str::uuid(), 'amount' => '60.00', 'installment_id' => $initial->id, 'payment_source' => 'credit'])->assertSessionHasNoErrors();
+        $this->post(route('orders.pay', $order), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '60.00', 'installment_id' => $initial->id, 'payment_source' => 'credit'])->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
         $this->assertSame(0, $initial->fresh()->remaining_cents);
         $this->assertSame(40000, $order->fresh()->balance_cents);
@@ -97,9 +99,9 @@ class ReceiptTest extends TestCase
     public function test_initial_is_paid_before_installments_and_full_initial_still_requires_payment(): void
     {
         [$user, $client] = $this->customer();
-        $data = ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'description' => 'Inicial completa', 'items' => [['description' => 'Moto', 'quantity' => 1, 'unit_price' => '500.00']], 'initial_amount' => '100.00', 'installment_count' => 4, 'frequency' => 'monthly', 'first_due' => today()->subYear()->toDateString()];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $client->id, 'description' => 'Inicial completa', 'items' => [['description' => 'Moto', 'quantity' => 1, 'unit_price' => '500.00']], 'initial_amount' => '100.00', 'installment_count' => 4, 'frequency' => 'monthly', 'first_due' => today()->subYear()->toDateString()];
         $order = app(SalesService::class)->create($user, $data);
-        app(SalesService::class)->pay($user, $order->id, ['token' => (string) Str::uuid(), 'amount' => '150.00', 'payment_method_id' => PaymentMethod::first()->id]);
+        app(SalesService::class)->pay($user, $order->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '150.00', 'payment_method_id' => PaymentMethod::first()->id]);
         $this->approvePendingReceipts();
         $this->assertSame(0, $order->fresh()->installments->firstWhere('number', 0)->remaining_cents);
         $this->assertSame(5000, $order->fresh()->installments->firstWhere('number', 1)->remaining_cents);
@@ -107,7 +109,7 @@ class ReceiptTest extends TestCase
         $this->assertCount(1, $full->installments);
         $this->assertSame(50000, $full->balance_cents);
         $this->assertSame('Pendiente de pago', $full->status);
-        app(SalesService::class)->pay($user, $full->id, ['token' => (string) Str::uuid(), 'amount' => '500.00', 'payment_method_id' => PaymentMethod::first()->id]);
+        app(SalesService::class)->pay($user, $full->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '500.00', 'payment_method_id' => PaymentMethod::first()->id]);
         $this->approvePendingReceipts();
         $this->assertSame('Pagado', $full->fresh()->status);
     }
@@ -118,7 +120,7 @@ class ReceiptTest extends TestCase
         $order = $this->order($user, $client);
         $first = $this->receive($user, $client, '80.00');
         $second = $this->receive($user, $client, '220.00');
-        $data = ['token' => (string) Str::uuid(), 'amount' => '250.00', 'payment_source' => 'credit'];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '250.00', 'payment_source' => 'credit'];
         $this->actingAs($user)->get(route('orders.show', $order))->assertOk()->assertSee('Saldo a favor disponible:')->assertSee('Nuevo pago')->assertSee('Usar saldo a favor');
         $this->post(route('orders.pay', $order), $data)->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
@@ -137,14 +139,14 @@ class ReceiptTest extends TestCase
         [$user, $client] = $this->customer();
         $order = $this->order($user, $client);
         $receipt = $this->receive($user, $client, '100.00');
-        $data = ['token' => (string) Str::uuid(), 'amount' => '500.00', 'allow_credit' => 1, 'payment_method_id' => $receipt->payment_method_id];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '500.00', 'allow_credit' => 1, 'payment_method_id' => $receipt->payment_method_id];
         $this->actingAs($user)->post(route('orders.pay', $order), $data)->assertSessionHasErrors('amount');
         $this->post(route('orders.pay', $order), array_merge($data, ['payment_source' => 'credit', 'amount' => '100.01']))->assertSessionHasErrors('amount');
         $this->assertDatabaseCount('receipts', 1);
         $this->assertDatabaseCount('payments', 0);
         $this->post(route('orders.pay', $order), array_merge($data, ['payment_source' => 'credit', 'amount' => '100.00']))->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
-        $this->post(route('orders.pay', $order), array_merge($data, ['token' => (string) Str::uuid(), 'amount' => '350.00']))->assertSessionHasNoErrors();
+        $this->post(route('orders.pay', $order), array_merge($data, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '350.00']))->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
         $this->assertSame(0, $order->fresh()->balance_cents);
         $this->assertSame(5000, $client->fresh()->credit_cents);
@@ -156,7 +158,7 @@ class ReceiptTest extends TestCase
         [$user, $client] = $this->customer();
         $order = $this->order($user, $client);
         $receipt = $this->receive($user, $client, '100.00');
-        $data = ['token' => (string) Str::uuid(), 'amount' => '450.00', 'new_payment' => 1, 'payment_source' => 'new', 'allow_credit' => 1];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '450.00', 'new_payment' => 1, 'payment_source' => 'new', 'allow_credit' => 1];
         $this->actingAs($user)->post(route('orders.pay', $order), $data)->assertSessionHasErrors('payment_method_id');
         $data['payment_method_id'] = $receipt->payment_method_id;
         $this->post(route('orders.pay', $order), array_merge($data, ['allow_credit' => 0]))->assertSessionHasErrors('amount');
@@ -177,7 +179,7 @@ class ReceiptTest extends TestCase
         [$user, $client] = $this->customer();
         $order = $this->order($user, $client);
         $receipt = $this->receive($user, $client);
-        $data = ['token' => (string) Str::uuid(), 'payment_source' => 'credit', 'amount' => '100.01', 'installment_id' => $order->installments[1]->id, 'allow_credit' => 1];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'payment_source' => 'credit', 'amount' => '100.01', 'installment_id' => $order->installments[1]->id, 'allow_credit' => 1];
         $this->actingAs($user)->post(route('orders.pay', $order), $data)->assertSessionHasErrors('amount');
         $this->post(route('orders.pay', $order), array_merge($data, ['amount' => '100.00']))->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
@@ -186,7 +188,7 @@ class ReceiptTest extends TestCase
         [$other, $foreign] = $this->customer();
         $foreignOrder = $this->order($other, $foreign);
         $this->post(route('orders.pay', $foreignOrder), $data)->assertForbidden();
-        $this->actingAs($other)->post(route('orders.pay', $foreignOrder), array_merge($data, ['token' => (string) Str::uuid(), 'installment_id' => null, 'amount' => '1.00']))->assertSessionHasErrors('amount');
+        $this->actingAs($other)->post(route('orders.pay', $foreignOrder), array_merge($data, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'installment_id' => null, 'amount' => '1.00']))->assertSessionHasErrors('amount');
         $this->assertSame(25000, $receipt->fresh()->available_cents);
     }
 
@@ -198,8 +200,8 @@ class ReceiptTest extends TestCase
         $receipt = $this->receive($user, $client);
         $this->assertSame(35000, $client->fresh()->credit_cents);
         $service = app(ReceiptService::class);
-        $service->apply($user, $receipt, $a->id, ['token' => (string) Str::uuid(), 'amount' => '250.00']);
-        $service->apply($user, $receipt, $b->id, ['token' => (string) Str::uuid(), 'amount' => '80.00']);
+        $service->apply($user, $receipt, $a->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '250.00']);
+        $service->apply($user, $receipt, $b->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '80.00']);
         $this->assertSame([0, 0, 5000, 10000], $a->fresh()->installments->map(fn ($i) => $i->remaining_cents)->all());
         $this->assertSame(15000, $a->fresh()->balance_cents);
         $this->assertSame(32000, $b->fresh()->balance_cents);
@@ -214,7 +216,7 @@ class ReceiptTest extends TestCase
     {
         [$user,$client] = $this->customer();
         $order = $this->order($user, $client);
-        $data = ['token' => (string) Str::uuid(), 'amount' => '450.00', 'payment_method_id' => PaymentMethod::first()->id, 'allow_credit' => 1];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '450.00', 'payment_method_id' => PaymentMethod::first()->id, 'allow_credit' => 1];
         $this->actingAs($user)->post(route('orders.pay', $order), $data)->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
         $this->assertSame(0, $order->fresh()->balance_cents);
@@ -229,7 +231,7 @@ class ReceiptTest extends TestCase
     {
         [$user,$client] = $this->customer();
         $order = $this->order($user, $client);
-        $data = ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'amount' => '250.00', 'payment_method_id' => PaymentMethod::first()->id, 'user_id' => 99999, 'dealership_id' => 99999];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $client->id, 'amount' => '250.00', 'payment_method_id' => PaymentMethod::first()->id, 'user_id' => 99999, 'dealership_id' => 99999];
         $this->actingAs($user)->post(route('receipts.store'), $data)->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
         $this->post(route('receipts.store'), $data)->assertSessionHasNoErrors();
@@ -238,12 +240,12 @@ class ReceiptTest extends TestCase
         $this->assertSame($client->user_id, $receipt->user_id);
         $this->assertSame($client->dealership_id, $receipt->dealership_id);
         $this->assertSame(40000, $order->fresh()->balance_cents);
-        $apply = ['token' => (string) Str::uuid(), 'order_id' => $order->id, 'amount' => '230.00'];
+        $apply = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'order_id' => $order->id, 'amount' => '230.00'];
         $this->post(route('receipts.apply', $receipt), $apply)->assertSessionHasNoErrors();
         $this->post(route('receipts.apply', $receipt), $apply)->assertSessionHasNoErrors();
         $this->assertSame(2000, $receipt->fresh()->available_cents);
         $this->assertDatabaseCount('payments', 1);
-        $this->post(route('receipts.apply', $receipt), array_merge($apply, ['token' => (string) Str::uuid(), 'amount' => '20.01']))->assertSessionHasErrors('amount');
+        $this->post(route('receipts.apply', $receipt), array_merge($apply, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '20.01']))->assertSessionHasErrors('amount');
         $this->assertSame(2000, $receipt->fresh()->available_cents);
     }
 
@@ -251,7 +253,7 @@ class ReceiptTest extends TestCase
     {
         [$user,$client] = $this->customer();
         $order = $this->order($user, $client);
-        $data = ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'amount' => '500.00', 'payment_method_id' => PaymentMethod::first()->id, 'order_id' => $order->id];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $client->id, 'amount' => '500.00', 'payment_method_id' => PaymentMethod::first()->id, 'order_id' => $order->id];
         $this->actingAs($user)->post(route('receipts.store'), $data)->assertSessionHasNoErrors();
         $this->approvePendingReceipts();
         $this->post(route('receipts.store'), $data)->assertSessionHasNoErrors();
@@ -267,7 +269,7 @@ class ReceiptTest extends TestCase
         $receipt = $this->receive($user, $client);
         $other = Client::create(['user_id' => $user->id, 'name' => 'Otro', 'document' => 'OTHER', 'phone' => '0412']);
         $order = $this->order($user, $other);
-        $data = ['token' => (string) Str::uuid(), 'order_id' => $order->id, 'amount' => '50.00'];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'order_id' => $order->id, 'amount' => '50.00'];
         $this->actingAs($user)->post(route('receipts.apply', $receipt), $data)->assertSessionHasErrors('amount');
         [$stranger] = $this->customer();
         $this->actingAs($stranger)->get(route('receipts.show', $receipt))->assertForbidden();
@@ -284,8 +286,8 @@ class ReceiptTest extends TestCase
         $b = $this->order($user, $client);
         $receipt = $this->receive($user, $client);
         $service = app(ReceiptService::class);
-        $p = $service->apply($user, $receipt, $a->id, ['token' => (string) Str::uuid(), 'amount' => '200.00']);
-        $service->apply($user, $receipt, $b->id, ['token' => (string) Str::uuid(), 'amount' => '100.00']);
+        $p = $service->apply($user, $receipt, $a->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '200.00']);
+        $service->apply($user, $receipt, $b->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '100.00']);
         $this->actingAs($user)->post(route('receipts.void', $receipt), ['reason' => 'Ingreso duplicado por error'])->assertForbidden();
         $admin = User::factory()->create(['role_id' => Role::where('name', 'admin')->value('id'), 'dealership_id' => null]);
         app(SalesService::class)->void($admin, $p, 'Se vinculó a la venta equivocada');
@@ -294,7 +296,7 @@ class ReceiptTest extends TestCase
         $this->actingAs($admin)->post(route('receipts.void', $receipt), ['reason' => 'Ingreso duplicado por error'])->assertSessionHasNoErrors();
         $this->assertSame(0, $receipt->fresh()->available_cents);
         $this->assertSame(40000, $b->fresh()->balance_cents);
-        $this->post(route('receipts.apply', $receipt), ['token' => (string) Str::uuid(), 'order_id' => $a->id, 'amount' => '1.00'])->assertSessionHasErrors('amount');
+        $this->post(route('receipts.apply', $receipt), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'order_id' => $a->id, 'amount' => '1.00'])->assertSessionHasErrors('amount');
     }
 
     public function test_specific_installment_and_inactive_method_do_not_lose_existing_funds(): void
@@ -303,7 +305,7 @@ class ReceiptTest extends TestCase
         $order = $this->order($user, $client);
         $receipt = $this->receive($user, $client);
         $receipt->method->update(['active' => false]);
-        $data = ['token' => (string) Str::uuid(), 'order_id' => $order->id, 'installment_id' => $order->installments[1]->id, 'amount' => '100.00'];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'order_id' => $order->id, 'installment_id' => $order->installments[1]->id, 'amount' => '100.00'];
         $this->actingAs($user)->post(route('receipts.apply', $receipt), $data)->assertSessionHasNoErrors();
         $this->assertSame(10000, $order->fresh()->installments[0]->remaining_cents);
         $this->assertSame(0, $order->fresh()->installments[1]->remaining_cents);
@@ -315,7 +317,7 @@ class ReceiptTest extends TestCase
         [$user,$client] = $this->customer();
         [$other,$foreign] = $this->customer();
         $order = $this->order($other, $foreign);
-        $data = ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'order_id' => $order->id, 'amount' => '20.00', 'payment_method_id' => PaymentMethod::first()->id];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $client->id, 'order_id' => $order->id, 'amount' => '20.00', 'payment_method_id' => PaymentMethod::first()->id];
         $this->actingAs($user)->post(route('receipts.store'), $data)->assertForbidden();
         $this->assertDatabaseCount('receipts', 0);
         $this->post(route('receipts.store'), array_merge($data, ['order_id' => '', 'amount' => '-1']))->assertSessionHasErrors('amount');
@@ -334,7 +336,7 @@ class ReceiptTest extends TestCase
         $this->get(route('receipts.index'))->assertOk()->assertViewHas('received', 0);
         $this->post(route('receipts.void', $receipt), ['reason' => 'Intento desde otra sede'])->assertForbidden();
         $foreignMethod = PaymentMethod::create(['name' => 'Caja de otra sede', 'dealership_id' => $dealer->id]);
-        $data = ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'amount' => '10.00', 'payment_method_id' => $foreignMethod->id];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $client->id, 'amount' => '10.00', 'payment_method_id' => $foreignMethod->id];
         $this->actingAs($user)->post(route('receipts.store'), $data)->assertSessionHasErrors('amount');
         $this->assertDatabaseCount('receipts', 1);
         $admin = User::factory()->create(['role_id' => Role::where('name', 'admin')->value('id'), 'dealership_id' => null]);

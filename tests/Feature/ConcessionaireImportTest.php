@@ -11,6 +11,7 @@ use App\Services\ConcessionaireImport;
 use App\Services\ReceiptService;
 use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 use ZipArchive;
@@ -25,6 +26,7 @@ class ConcessionaireImportTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
     }
 
     protected function tearDown(): void

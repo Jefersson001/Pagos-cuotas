@@ -104,7 +104,7 @@ class PaymentMethodTest extends TestCase
         $this->get(route('records.duplicate', ['type' => 'method', 'id' => $method->id]))->assertForbidden();
         $this->delete(route('records.destroy', ['type' => 'method', 'id' => $method->id]))->assertForbidden();
         $this->get(route('receipts.account', ['client_id' => $client->id]))->assertOk()->assertJsonPath('methods.0.id', $method->id);
-        $this->post(route('receipts.store'), ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'payment_method_id' => $method->id, 'amount' => '10.00'])->assertSessionHasNoErrors();
+        $this->post(route('receipts.store'), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $client->id, 'payment_method_id' => $method->id, 'amount' => '10.00'])->assertSessionHasNoErrors();
         $this->assertDatabaseHas('receipts', ['client_id' => $client->id, 'payment_method_id' => $method->id, 'approval_status' => 'pending']);
         $this->assertTrue($method->fresh()->active);
     }
@@ -124,7 +124,7 @@ class PaymentMethodTest extends TestCase
         $method = PaymentMethod::firstOrFail();
         $client = Client::create(['user_id' => $admin->id, 'name' => 'Cliente', 'document' => 'METHOD-TEST', 'phone' => '04120000000']);
         $order = app(SalesService::class)->create($admin, ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'description' => 'Prueba método', 'items' => [['description' => 'Producto', 'quantity' => 1, 'unit_price' => '100.00']], 'initial_amount' => '10.00', 'payment_method_id' => $method->id, 'installment_count' => 1, 'frequency' => 'monthly', 'first_due' => '2027-01-01']);
-        $payment = app(SalesService::class)->pay($admin, $order->id, ['token' => (string) Str::uuid(), 'amount' => '10.00', 'payment_method_id' => $method->id]);
+        $payment = app(SalesService::class)->pay($admin, $order->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '10.00', 'payment_method_id' => $method->id]);
         $this->actingAs($admin)->from(route('payment-methods.edit', $method))->delete(route('payment-methods.destroy', $method))->assertSessionHasErrors('method');
         $this->assertModelExists($method);
         $this->assertModelExists($payment);

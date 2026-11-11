@@ -159,7 +159,8 @@ class SalesService
             }
             if ($old = Receipt::where('token', $data['token'])->first()) {
                 Gate::forUser($actor)->authorize('view', $old);
-                if ($old->source_order_id !== $orderId || Money::cents($old->amount) !== Money::cents($data['amount']) || (int) $old->intended_installment_id !== (int) ($data['installment_id'] ?? 0)) {
+                if ($old->source_order_id !== $orderId || Money::cents($old->amount) !== Money::cents($data['amount']) || (int) $old->intended_installment_id !== (int) ($data['installment_id'] ?? 0)
+                    || (isset($data['payment_date']) && $old->payment_date?->toDateString() !== $data['payment_date'])) {
                     $this->fail('El comprobante ya fue utilizado con otros datos.');
                 }
 

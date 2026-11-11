@@ -15,7 +15,7 @@ class Receipt extends OwnedModel
 
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2', 'intended_amount' => 'decimal:2', 'voided_at' => 'datetime', 'approved_at' => 'datetime', 'rejected_at' => 'datetime'];
+        return ['payment_date' => 'date', 'amount' => 'decimal:2', 'intended_amount' => 'decimal:2', 'voided_at' => 'datetime', 'approved_at' => 'datetime', 'rejected_at' => 'datetime'];
     }
 
     public function approver(): BelongsTo

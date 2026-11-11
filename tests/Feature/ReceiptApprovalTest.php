@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -21,6 +22,7 @@ class ReceiptApprovalTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
     }
 
     /** @return array<string, mixed> */
@@ -41,7 +43,7 @@ class ReceiptApprovalTest extends TestCase
     /** @return array<string, int|string> */
     private function payment(array $data, string $amount = '150.00'): array
     {
-        return ['token' => (string) Str::uuid(), 'client_id' => $data['client']->id, 'payment_method_id' => $data['method']->id, 'amount' => $amount];
+        return ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $data['client']->id, 'payment_method_id' => $data['method']->id, 'amount' => $amount];
     }
 
     public function test_portfolio_shortcuts_filter_accounts_without_exposing_other_concessionaires(): void
@@ -52,7 +54,7 @@ class ReceiptApprovalTest extends TestCase
         $data['order']->installments()->where('number', 0)->update(['due_date' => today()->subDay()]);
         $this->actingAs($data['owner'])->post(route('receipts.store'), $this->payment($data))->assertSessionHasNoErrors();
         $receipt = Receipt::firstOrFail();
-        $this->actingAs($data['head'])->post(route('receipts.approve', $receipt))->assertSessionHasNoErrors();
+        $this->actingAs($data['head'])->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
 
         $this->actingAs($data['owner']);
         foreach (['debt', 'overdue', 'credit', 'due_soon', 'received', 'sales'] as $filter) {
@@ -98,11 +100,11 @@ class ReceiptApprovalTest extends TestCase
         $this->assertDatabaseCount('receipts', 1);
         $this->post(route('orders.pay', $data['order']), array_replace($values, ['amount' => '151.00']))->assertSessionHasErrors('amount');
         $this->get(route('orders.show', $data['order']))->assertOk()->assertSee('Pagos pendientes de aprobación');
-        $this->post(route('receipts.approve', $receipt))->assertForbidden();
-        $this->post(route('receipts.apply', $receipt), ['token' => (string) Str::uuid(), 'order_id' => $data['order']->id, 'amount' => '10.00'])->assertSessionHasErrors('amount');
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertForbidden();
+        $this->post(route('receipts.apply', $receipt), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'order_id' => $data['order']->id, 'amount' => '10.00'])->assertSessionHasErrors('amount');
         $this->actingAs($data['head'])->get(route('receipts.show', $receipt))->assertOk()->assertSee('Aprobar pago')->assertSee('Venta relacionada:')->assertDontSee('Registrar pago');
-        $this->post(route('receipts.approve', $receipt))->assertSessionHasNoErrors();
-        $this->post(route('receipts.approve', $receipt))->assertSessionHasNoErrors();
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $this->assertDatabaseCount('payments', 1);
         $this->assertSame(25000, $data['order']->fresh()->balance_cents);
         $this->assertSame(0, $data['order']->fresh()->installments->firstWhere('number', 0)->remaining_cents);
@@ -118,11 +120,11 @@ class ReceiptApprovalTest extends TestCase
         $receipt = Receipt::firstOrFail();
         $this->assertSame(0, $receipt->available_cents);
         $this->actingAs($data['customer'])->get(route('portal.receipt', $receipt))->assertOk()->assertSee('pendiente de aprobación')->assertDontSee('Aprobar pago');
-        $this->post(route('receipts.approve', $receipt))->assertForbidden();
-        $this->actingAs($data['head'])->post(route('receipts.approve', $receipt))->assertSessionHasNoErrors();
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertForbidden();
+        $this->actingAs($data['head'])->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $this->assertSame(15000, $data['client']->fresh()->credit_cents);
         $this->assertDatabaseCount('payments', 0);
-        $this->actingAs($data['owner'])->post(route('orders.pay', $data['order']), ['token' => (string) Str::uuid(), 'payment_source' => 'credit', 'amount' => '125.00'])->assertSessionHasNoErrors();
+        $this->actingAs($data['owner'])->post(route('orders.pay', $data['order']), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'payment_source' => 'credit', 'amount' => '125.00'])->assertSessionHasNoErrors();
         $this->assertSame(2500, $data['client']->fresh()->credit_cents);
         $this->assertSame(27500, $data['order']->fresh()->balance_cents);
         $this->assertDatabaseCount('receipts', 1);
@@ -145,7 +147,7 @@ class ReceiptApprovalTest extends TestCase
         $this->assertSame($data['head']->id, $receipt->fresh()->rejected_by);
         $this->get(route('receipts.show', $receipt))->assertOk()->assertSee('Historial del pago')->assertSee($data['head']->name)->assertSee('Comprobante incorrecto');
         $this->assertSame('Comprobante incorrecto', $receipt->fresh()->rejection_reason);
-        $this->post(route('receipts.approve', $receipt))->assertSessionHasErrors('amount');
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertSessionHasErrors('amount');
         $this->assertSame(0, $data['client']->fresh()->credit_cents);
         $this->assertSame(40000, $data['order']->fresh()->balance_cents);
         $this->assertDatabaseCount('payments', 0);
@@ -159,7 +161,7 @@ class ReceiptApprovalTest extends TestCase
         $receipt = Receipt::firstOrFail();
         $this->actingAs($other['head'])->get(route('receipts.index', ['dealership_id' => $data['company']->id]))->assertOk()->assertViewHas('receipts', fn ($rows) => $rows->total() === 0);
         $this->get(route('receipts.show', $receipt))->assertForbidden();
-        $this->post(route('receipts.approve', $receipt))->assertForbidden();
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertForbidden();
         $this->post(route('receipts.reject', $receipt), ['reason' => 'Intento desde otra organización'])->assertForbidden();
         $this->actingAs($data['head'])->post(route('receipts.store'), $this->payment($data))->assertForbidden();
         $this->get(route('receipts.create'))->assertForbidden();
@@ -174,7 +176,7 @@ class ReceiptApprovalTest extends TestCase
         $target = $data['order']->installments->firstWhere('number', 2);
         $this->actingAs($data['owner'])->post(route('receipts.store'), $this->payment($data, '150.00') + ['order_id' => $data['order']->id, 'installment_id' => $target->id])->assertSessionHasNoErrors();
         $receipt = Receipt::firstOrFail();
-        $this->actingAs($data['head'])->post(route('receipts.approve', $receipt))->assertSessionHasNoErrors();
+        $this->actingAs($data['head'])->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $this->assertSame(0, $target->fresh()->remaining_cents);
         $this->assertSame(10000, $data['order']->fresh()->installments->firstWhere('number', 0)->remaining_cents);
         $this->assertSame(5000, $data['client']->fresh()->credit_cents);
@@ -187,8 +189,8 @@ class ReceiptApprovalTest extends TestCase
         $first = Receipt::firstOrFail();
         $this->post(route('orders.pay', $data['order']), $this->payment($data, '400.00'))->assertSessionHasNoErrors();
         $second = Receipt::latest('id')->firstOrFail();
-        $this->actingAs($data['head'])->post(route('receipts.approve', $first))->assertSessionHasNoErrors();
-        $this->post(route('receipts.approve', $second))->assertSessionHasNoErrors();
+        $this->actingAs($data['head'])->post(route('receipts.approve', $first), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
+        $this->post(route('receipts.approve', $second), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $this->assertSame(0, $data['order']->fresh()->balance_cents);
         $this->assertSame(40000, $data['client']->fresh()->credit_cents);
         $this->assertDatabaseCount('payments', 1);
@@ -197,7 +199,7 @@ class ReceiptApprovalTest extends TestCase
         $this->actingAs($other['owner'])->post(route('orders.pay', $other['order']), $this->payment($other))->assertSessionHasNoErrors();
         $cancelled = Receipt::latest('id')->firstOrFail();
         $other['order']->update(['cancelled' => true]);
-        $this->actingAs($other['head'])->post(route('receipts.approve', $cancelled))->assertSessionHasErrors('amount');
+        $this->actingAs($other['head'])->post(route('receipts.approve', $cancelled), ['approval_proof' => $this->approvalProof()])->assertSessionHasErrors('amount');
         $this->assertSame('pending', $cancelled->fresh()->approval_status);
         $this->assertNull($cancelled->fresh()->approved_at);
     }
@@ -224,7 +226,7 @@ class ReceiptApprovalTest extends TestCase
         $receivedAt = today()->subMonths(2)->setTime(10, 30);
         $receipt->update(['created_at' => $receivedAt]);
         $this->actingAs($data['head'])->get(route('receipts.index'))->assertOk()->assertViewHas('receipts', fn ($rows) => $rows->total() === 1 && $rows->first()->id === $receipt->id);
-        $this->post(route('receipts.approve', $receipt))->assertSessionHasNoErrors();
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $this->assertTrue($receipt->fresh()->created_at->equalTo($receivedAt));
         $this->assertTrue($receipt->fresh()->approved_at->isToday());
         $this->get(route('receipts.index'))->assertOk()->assertViewHas('receipts', fn ($rows) => $rows->total() === 0);

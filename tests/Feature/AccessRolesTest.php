@@ -15,6 +15,7 @@ use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -28,6 +29,7 @@ class AccessRolesTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
         $this->travelTo(now()->setDate(2026, 10, 29)->setTime(12, 0));
     }
 
@@ -50,7 +52,7 @@ class AccessRolesTest extends TestCase
     {
         $method = PaymentMethod::firstOrCreate(['name' => 'Efectivo', 'dealership_id' => $client->dealership_id], ['active' => true]);
 
-        $receipt = app(ReceiptService::class)->receive($owner, $client->id, ['token' => (string) Str::uuid(), 'amount' => $amount, 'payment_method_id' => $method->id]);
+        $receipt = app(ReceiptService::class)->receive($owner, $client->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => $amount, 'payment_method_id' => $method->id]);
         $this->approvePendingReceipts();
 
         return $receipt->fresh();

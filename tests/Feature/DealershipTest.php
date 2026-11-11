@@ -14,6 +14,7 @@ use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -25,6 +26,7 @@ class DealershipTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
     }
 
     private function user(string $role, ?Dealership $dealer = null): User
@@ -38,7 +40,7 @@ class DealershipTest extends TestCase
         $method = PaymentMethod::firstOrCreate(['dealership_id' => $owner->dealership_id, 'name' => 'Efectivo']);
 
         $order = app(SalesService::class)->create($owner, ['token' => (string) Str::uuid(), 'client_id' => $client->id, 'description' => $name, 'items' => [['description' => 'Vehículo', 'quantity' => 1, 'unit_price' => '1000.00']], 'initial_amount' => '100.00', 'payment_method_id' => $method->id, 'installment_count' => 9, 'frequency' => 'monthly', 'first_due' => '2025-01-01']);
-        app(SalesService::class)->pay($owner, $order->id, ['token' => (string) Str::uuid(), 'amount' => '100.00', 'payment_method_id' => $method->id, 'installment_id' => $order->installments->firstWhere('number', 0)->id]);
+        app(SalesService::class)->pay($owner, $order->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '100.00', 'payment_method_id' => $method->id, 'installment_id' => $order->installments->firstWhere('number', 0)->id]);
         $this->approvePendingReceipts();
 
         return $order->fresh();
@@ -196,7 +198,7 @@ class DealershipTest extends TestCase
         $owner = $this->user('user', $a);
         $order = $this->sale($owner, 'Cliente A');
         $method = PaymentMethod::create(['dealership_id' => $b->id, 'name' => 'Ajeno']);
-        $this->actingAs($owner)->post(route('orders.pay', $order), ['token' => (string) Str::uuid(), 'amount' => '50.00', 'payment_method_id' => $method->id])->assertSessionHasErrors('amount');
+        $this->actingAs($owner)->post(route('orders.pay', $order), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '50.00', 'payment_method_id' => $method->id])->assertSessionHasErrors('amount');
         $this->assertSame(90000, $order->fresh()->balance_cents);
         $this->assertSame(1, $order->payments()->count());
     }
@@ -207,7 +209,7 @@ class DealershipTest extends TestCase
         $owner = $this->user('user', $dealer);
         $order = $this->sale($owner, 'Cliente A');
         $manager = $this->user('dealership_admin', $dealer);
-        $payment = app(SalesService::class)->pay($manager, $order->id, ['token' => (string) Str::uuid(), 'amount' => '100.00', 'payment_method_id' => $order->payments->first()->payment_method_id]);
+        $payment = app(SalesService::class)->pay($manager, $order->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '100.00', 'payment_method_id' => $order->payments->first()->payment_method_id]);
         $this->approvePendingReceipts();
         $this->assertSame($dealer->id, $payment->dealership_id);
         $this->assertSame($manager->id, $payment->recorded_by);
@@ -232,7 +234,7 @@ class DealershipTest extends TestCase
         $this->assertGuest();
         $this->flushSession();
         $this->actingAs($this->user('admin'))->get(route('orders.show', $order))->assertOk();
-        $this->post(route('orders.pay', $order), ['token' => (string) Str::uuid(), 'amount' => '50', 'payment_method_id' => $order->payments->first()->payment_method_id])->assertSessionHasErrors('dealership_id');
+        $this->post(route('orders.pay', $order), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '50', 'payment_method_id' => $order->payments->first()->payment_method_id])->assertSessionHasErrors('dealership_id');
     }
 
     public function test_global_admin_creates_and_edits_dealership_and_keeps_existing_data(): void

@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\ReceiptService;
 use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -23,6 +24,7 @@ class CustomerOverviewTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
         $this->travelTo(now()->setDate(2026, 10, 29)->setTime(12, 0));
     }
 

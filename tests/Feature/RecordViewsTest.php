@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\ReceiptService;
 use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -24,6 +25,7 @@ class RecordViewsTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
     }
 
     private function actor(string $role = 'admin', ?Dealership $company = null): User

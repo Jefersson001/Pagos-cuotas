@@ -50,16 +50,16 @@ class ContactHierarchyTest extends TestCase
         $orphan = Client::factory()->for($admin, 'owner')->create(['name' => 'Comprador sin concesionario', 'dealership_id' => $company->id]);
         $method = PaymentMethod::create(['name' => 'Efectivo de la organización', 'active' => true, 'dealership_id' => $company->id]);
         $sales = app(SalesService::class);
-        $data = ['token' => (string) Str::uuid(), 'client_id' => $clientA->id, 'description' => 'Venta de prueba', 'items' => [['description' => 'Compra privada', 'quantity' => 1, 'unit_price' => '100.00']], 'initial_amount' => '20.00', 'installment_count' => 4, 'frequency' => 'monthly', 'first_due' => today()->toDateString()];
+        $data = ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $clientA->id, 'description' => 'Venta de prueba', 'items' => [['description' => 'Compra privada', 'quantity' => 1, 'unit_price' => '100.00']], 'initial_amount' => '20.00', 'installment_count' => 4, 'frequency' => 'monthly', 'first_due' => today()->toDateString()];
         $orderA = $sales->create($admin, $data);
         $data['token'] = (string) Str::uuid();
         $data['client_id'] = $clientB->id;
         $data['items'][0]['unit_price'] = '200.00';
         $orderB = $sales->create($admin, $data);
         $receipts = app(ReceiptService::class);
-        $receiptA = $receipts->receive($admin, $clientA->id, ['token' => (string) Str::uuid(), 'amount' => '40.00', 'payment_method_id' => $method->id]);
-        $receiptB = $receipts->receive($admin, $clientB->id, ['token' => (string) Str::uuid(), 'amount' => '50.00', 'payment_method_id' => $method->id]);
-        $paymentA = $receipts->apply($admin, $receiptA, $orderA->id, ['token' => (string) Str::uuid(), 'amount' => '20.00']);
+        $receiptA = $receipts->receive($admin, $clientA->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '40.00', 'payment_method_id' => $method->id]);
+        $receiptB = $receipts->receive($admin, $clientB->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '50.00', 'payment_method_id' => $method->id]);
+        $paymentA = $receipts->apply($admin, $receiptA, $orderA->id, ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '20.00']);
 
         return compact('company', 'admin', 'head', 'contactA', 'contactB', 'foreignContact', 'dealerA', 'dealerB', 'clientA', 'clientB', 'orphan', 'method', 'orderA', 'orderB', 'receiptA', 'receiptB', 'paymentA');
     }
@@ -94,9 +94,9 @@ class ContactHierarchyTest extends TestCase
         $this->assertSame($data['admin']->id, $data['clientA']->fresh()->user_id);
         $this->post(route('clients.store'), ['name' => 'Intruso', 'concessionaire_id' => $data['contactB']->id])->assertSessionHasErrors('concessionaire_id');
         $this->post(route('clients.store'), ['name' => 'Intruso', 'customer_kind' => 'dealership'])->assertSessionHasErrors('customer_kind');
-        $this->post(route('receipts.store'), ['token' => (string) Str::uuid(), 'client_id' => $data['clientB']->id, 'amount' => '10.00', 'payment_method_id' => $data['method']->id])->assertForbidden();
+        $this->post(route('receipts.store'), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $data['clientB']->id, 'amount' => '10.00', 'payment_method_id' => $data['method']->id])->assertForbidden();
         $product = Product::factory()->create(['dealership_id' => $data['company']->id]);
-        $this->post(route('orders.store'), ['token' => (string) Str::uuid(), 'client_id' => $data['clientB']->id, 'items' => [['product_id' => $product->id, 'quantity' => 1]], 'installment_count' => 4, 'frequency' => 'monthly', 'first_due' => today()->toDateString()])->assertForbidden();
+        $this->post(route('orders.store'), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'client_id' => $data['clientB']->id, 'items' => [['product_id' => $product->id, 'quantity' => 1]], 'installment_count' => 4, 'frequency' => 'monthly', 'first_due' => today()->toDateString()])->assertForbidden();
         $this->assertDatabaseCount('orders', 2);
         $this->assertDatabaseCount('receipts', 2);
         $this->assertDatabaseMissing('clients', ['name' => 'Intruso']);

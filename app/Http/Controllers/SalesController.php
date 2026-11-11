@@ -7,8 +7,10 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Product;
+use App\Models\Receipt;
 use App\Services\Audit;
 use App\Services\DealershipContext;
+use App\Services\ReceiptService;
 use App\Services\SalesService;
 use App\Support\MonthlyDateFilter;
 use Illuminate\Http\JsonResponse;
@@ -125,11 +127,13 @@ class SalesController extends Controller
         return redirect()->route('orders.show', $order)->with('success', 'Venta actualizada.');
     }
 
-    public function pay(Request $r, Order $order, SalesService $service)
+    public function pay(Request $r, Order $order, SalesService $service, ReceiptService $receipts)
     {
         Gate::authorize('update', $order);
         $v = $r->validate(['token' => 'required|uuid', 'amount' => 'required|string', 'payment_source' => 'nullable|in:new,credit', 'new_payment' => 'nullable|boolean', 'allow_credit' => 'nullable|boolean', 'payment_method_id' => 'required_unless:payment_source,credit|nullable|integer', 'installment_id' => 'nullable|integer', 'reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
-        $service->pay($r->user(), $order->id, $v);
+        $v += $r->validate(['payment_date' => 'required_unless:payment_source,credit|nullable|date_format:Y-m-d|before_or_equal:today']);
+        $v += $r->validate(['proof' => 'exclude_if:payment_source,credit|nullable|file|mimes:jpg,jpeg,png,pdf|max:5120']);
+        $receipts->withClientProof($v['proof'] ?? null, fn (?string $path): Payment|Receipt => $service->pay($r->user(), $order->id, array_merge($v, ['proof_path' => $path])));
 
         return back()->with('success', ($v['payment_source'] ?? 'new') === 'credit' ? 'Saldo a favor aplicado a la venta. No se registró dinero nuevo.' : ($r->user()->isAdmin() ? 'Pago registrado correctamente.' : 'Pago registrado y relacionado con esta venta, pendiente de aprobación por casa matriz.'));
     }

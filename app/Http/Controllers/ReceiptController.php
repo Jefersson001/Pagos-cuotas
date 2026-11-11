@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -90,9 +91,10 @@ class ReceiptController extends Controller
 
     public function store(Request $r, ReceiptService $service)
     {
-        $v = $r->validate(['token' => 'required|uuid', 'client_id' => 'required|integer', 'amount' => 'required|string', 'payment_method_id' => 'required|integer', 'order_id' => 'nullable|integer', 'installment_id' => 'nullable|integer', 'reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
-        $receipt = DB::transaction(function () use ($r, $v, $service) {
-            $receipt = $service->receive($r->user(), $v['client_id'], array_merge($v, ['source_order_id' => $v['order_id'] ?? null]));
+        $v = $r->validate(['payment_date' => 'required|date_format:Y-m-d|before_or_equal:today', 'token' => 'required|uuid', 'client_id' => 'required|integer', 'amount' => 'required|string', 'payment_method_id' => 'required|integer', 'order_id' => 'nullable|integer', 'installment_id' => 'nullable|integer', 'reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
+        $v += $r->validate(['proof' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120']);
+        $receipt = $service->withClientProof($r->file('proof'), fn (?string $path): Receipt => DB::transaction(function () use ($r, $v, $service, $path) {
+            $receipt = $service->receive($r->user(), $v['client_id'], array_merge($v, ['source_order_id' => $v['order_id'] ?? null, 'proof_path' => $path]));
             if ($receipt->approval_status === 'approved' && ! empty($v['order_id']) && ! $receipt->applications()->where('token', $v['token'])->exists()) {
                 $order = Order::findOrFail($v['order_id']);
                 Gate::authorize('update', $order);
@@ -104,7 +106,7 @@ class ReceiptController extends Controller
             }
 
             return $receipt;
-        }, 3);
+        }, 3));
 
         return redirect()->route('receipts.show', $receipt)->with('success', $receipt->approval_status === 'pending' ? 'Pago registrado, pendiente de aprobación por casa matriz. Los saldos todavía no cambian.' : 'Pago registrado. El importe sin aplicar queda como saldo a favor del cliente.');
     }
@@ -135,16 +137,19 @@ class ReceiptController extends Controller
     public function update(Request $request, Receipt $receipt): RedirectResponse
     {
         Gate::authorize('update', $receipt);
-        $values = $request->validate(['reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
+        $values = $request->validate(['payment_date' => 'sometimes|required|date_format:Y-m-d|before_or_equal:today', 'reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
         DB::transaction(function () use ($request, $receipt, $values): void {
             Client::lockForUpdate()->findOrFail($receipt->client_id);
             $locked = Receipt::lockForUpdate()->findOrFail($receipt->id);
             Gate::authorize('update', $locked);
             DealershipContext::forWrite($request->user(), null, $locked->dealership_id);
             abort_if($locked->voided_at, 422, 'Un pago anulado conserva sus datos originales.');
-            $before = $locked->only(['reference', 'notes']);
+            if (isset($values['payment_date']) && $locked->approval_status !== 'pending' && $values['payment_date'] !== $locked->payment_date?->toDateString()) {
+                throw ValidationException::withMessages(['payment_date' => 'La fecha de pago solo se puede corregir mientras esté pendiente de aprobación.']);
+            }
+            $before = $locked->only(['payment_date', 'reference', 'notes']);
             $locked->update($values);
-            Audit::log($request->user()->id, 'save', 'receipt', $locked->id, ['before' => $before, 'after' => $locked->only(['reference', 'notes'])]);
+            Audit::log($request->user()->id, 'save', 'receipt', $locked->id, ['before' => $before, 'after' => $locked->only(['payment_date', 'reference', 'notes'])]);
         }, 3);
 
         return redirect()->route('receipts.show', $receipt)->with('success', 'Datos del pago actualizados.');
@@ -170,8 +175,8 @@ class ReceiptController extends Controller
     public function approve(Request $request, Receipt $receipt, ReceiptService $service): RedirectResponse
     {
         Gate::authorize('review', $receipt);
-        $values = $request->validate(['expected_applied_cents' => 'nullable|integer|min:0']);
-        $service->approve($request->user(), $receipt, isset($values['expected_applied_cents']) ? (int) $values['expected_applied_cents'] : null);
+        $values = $request->validate(['expected_applied_cents' => 'nullable|integer|min:0', 'approval_proof' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120']);
+        $service->approve($request->user(), $receipt, isset($values['expected_applied_cents']) ? (int) $values['expected_applied_cents'] : null, $request->file('approval_proof'));
 
         return back()->with('success', 'Pago aprobado. Se aplicó a la venta indicada y el importe restante quedó como saldo a favor del cliente.');
     }
@@ -214,11 +219,29 @@ class ReceiptController extends Controller
         return back()->with('success', 'Comprobante adjuntado. Casa matriz puede revisarlo antes de aprobar.');
     }
 
-    public function proof(Receipt $receipt): StreamedResponse
+    public function proof(Request $request, Receipt $receipt): StreamedResponse
     {
         Gate::authorize('view', $receipt);
-        abort_unless($receipt->proof_path && Storage::disk('local')->exists($receipt->proof_path), 404);
 
-        return Storage::disk('local')->download($receipt->proof_path, 'REC-'.$receipt->id.'.'.pathinfo($receipt->proof_path, PATHINFO_EXTENSION), ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff']);
+        return $this->proofResponse($request, $receipt->proof_path, 'REC-'.$receipt->id);
+    }
+
+    public function approvalProof(Request $request, Receipt $receipt): StreamedResponse
+    {
+        Gate::authorize('view', $receipt);
+        abort_if($request->user()->isCustomer(), 403);
+
+        return $this->proofResponse($request, $receipt->approval_proof_path, 'REC-'.$receipt->id.'-casa-matriz');
+    }
+
+    private function proofResponse(Request $request, ?string $path, string $filename): StreamedResponse
+    {
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+        $filename .= '.'.pathinfo($path, PATHINFO_EXTENSION);
+        $headers = ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff'];
+
+        return $request->boolean('preview')
+            ? Storage::disk('local')->response($path, $filename, $headers, 'inline')
+            : Storage::disk('local')->download($path, $filename, $headers);
     }
 }

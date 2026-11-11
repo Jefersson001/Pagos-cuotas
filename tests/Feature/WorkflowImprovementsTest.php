@@ -25,6 +25,7 @@ class WorkflowImprovementsTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
     }
 
     /** @return array<string, mixed> */
@@ -67,7 +68,7 @@ class WorkflowImprovementsTest extends TestCase
         $rejected = $this->receive($data, '20.00');
         $approved = $this->receive($data, '30.00');
         app(ReceiptService::class)->reject($data['head'], $rejected, 'Comprobante incorrecto');
-        app(ReceiptService::class)->approve($data['head'], $approved);
+        app(ReceiptService::class)->approve($data['head'], $approved, null, $this->approvalProof());
         $this->actingAs($data['dealer'])->get(route('clients.show', $data['client']))->assertOk()
             ->assertSee('<small>Pagos recibidos confirmados</small><strong>$30.00</strong>', false)
             ->assertSee(route('receipts.edit', $pending), false)->assertDontSee(route('receipts.edit', $approved), false)->assertDontSee(route('receipts.edit', $rejected), false);
@@ -88,7 +89,7 @@ class WorkflowImprovementsTest extends TestCase
         $this->actingAs($foreign['head'])->get(route('receipts.proof', $receipt))->assertForbidden();
         $this->actingAs($foreign['customer'])->get(route('portal.receipt-proof', $receipt))->assertForbidden();
         $this->actingAs($data['dealer'])->post(route('receipts.proof.store', $receipt), ['proof' => UploadedFile::fake()->create('ejecutable.php', 1, 'application/x-httpd-php')])->assertSessionHasErrors('proof');
-        app(ReceiptService::class)->approve($data['head'], $receipt);
+        app(ReceiptService::class)->approve($data['head'], $receipt, null, $this->approvalProof());
         $this->post(route('receipts.proof.store', $receipt), ['proof' => UploadedFile::fake()->create('nuevo.pdf', 20, 'application/pdf')])->assertForbidden();
         $this->assertSame($path, $receipt->fresh()->proof_path);
     }
@@ -99,12 +100,12 @@ class WorkflowImprovementsTest extends TestCase
         $receipt = $this->receive($data, '40.00', true, 'REF-IGUAL');
         $other = $this->receive($data, '100.00', false, 'REF-IGUAL');
         $service = app(ReceiptService::class);
-        $service->approve($data['head'], $other);
+        $service->approve($data['head'], $other, null, $this->approvalProof());
         $service->apply($data['dealer'], $other->fresh(), $data['order']->id, ['token' => (string) Str::uuid(), 'amount' => '100.00']);
         $this->actingAs($data['head'])->get(route('receipts.show', $receipt))->assertOk()->assertViewHas('duplicateReference', true)->assertViewHas('approvalPreview', fn ($preview) => $preview['applied_cents'] === 2000 && $preview['credit_cents'] === 2000 && $preview['changed']);
-        $this->post(route('receipts.approve', $receipt), ['expected_applied_cents' => 4000])->assertSessionHasErrors('amount');
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof(), 'expected_applied_cents' => 4000])->assertSessionHasErrors('amount');
         $this->assertSame('pending', $receipt->fresh()->approval_status);
-        $this->post(route('receipts.approve', $receipt), ['expected_applied_cents' => 2000])->assertSessionHasNoErrors();
+        $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof(), 'expected_applied_cents' => 2000])->assertSessionHasNoErrors();
         $this->assertSame(0, $data['order']->fresh()->balance_cents);
         $this->assertSame(2000, $data['client']->fresh()->credit_cents);
     }

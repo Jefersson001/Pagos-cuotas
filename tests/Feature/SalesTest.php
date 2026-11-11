@@ -12,6 +12,7 @@ use App\Services\ReportService;
 use App\Services\SalesService;
 use App\Support\Money;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -24,6 +25,7 @@ class SalesTest extends TestCase
     {
         parent::setUp();
         $this->seed();
+        Storage::fake('local');
     }
 
     private function actor(bool $admin = false): User
@@ -45,7 +47,7 @@ class SalesTest extends TestCase
 
     private function pay(User $u, Order $o, string $amount, array $extra = [])
     {
-        $result = app(SalesService::class)->pay($u, $o->id, array_replace(['token' => (string) Str::uuid(), 'amount' => $amount, 'payment_method_id' => PaymentMethod::first()->id], $extra));
+        $result = app(SalesService::class)->pay($u, $o->id, array_replace(['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => $amount, 'payment_method_id' => PaymentMethod::first()->id], $extra));
         $this->approvePendingReceipts();
 
         return $result instanceof Receipt ? $result->applications()->firstOrFail() : $result;

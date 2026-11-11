@@ -9,12 +9,38 @@ use App\Models\PaymentMethod;
 use App\Models\Receipt;
 use App\Models\User;
 use App\Support\Money;
+use Closure;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class ReceiptService
 {
+    /** @param Closure(?string): (Receipt|Payment) $register */
+    public function withClientProof(?UploadedFile $proof, Closure $register): Receipt|Payment
+    {
+        Validator::make(['proof' => $proof], ['proof' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120'])->validate();
+        $path = $proof?->store('receipt-proofs', 'local');
+        if ($proof && ! $path) {
+            throw ValidationException::withMessages(['proof' => 'No se pudo guardar el comprobante. Intenta adjuntarlo de nuevo.']);
+        }
+        $retainedPath = null;
+        try {
+            $result = $register($path ?: null);
+            $receipt = $result instanceof Receipt ? $result : $result->receipt;
+            $retainedPath = $receipt?->proof_path;
+
+            return $result;
+        } finally {
+            if ($path && $retainedPath !== $path) {
+                Storage::disk('local')->delete($path);
+            }
+        }
+    }
+
     private function fail(string $message): never
     {
         throw ValidationException::withMessages(['amount' => $message]);
@@ -22,6 +48,10 @@ class ReceiptService
 
     public function receive(User $actor, int $clientId, array $data): Receipt
     {
+        $paymentDate = $data['payment_date'] ?? today()->toDateString();
+        Validator::make(['payment_date' => $paymentDate], ['payment_date' => 'required|date_format:Y-m-d|before_or_equal:today'])->validate();
+        $data['payment_date'] = $paymentDate;
+
         return DB::transaction(function () use ($actor, $clientId, $data) {
             $client = Client::lockForUpdate()->findOrFail($clientId);
             Gate::forUser($actor)->authorize('view', $client);
@@ -32,7 +62,8 @@ class ReceiptService
                 if ($old->client_id != $clientId || Money::cents($old->amount) !== $amount
                     || (int) $old->source_order_id !== (int) ($data['source_order_id'] ?? 0)
                     || (int) $old->intended_installment_id !== (int) ($data['installment_id'] ?? 0)
-                    || (int) $old->payment_method_id !== (int) $data['payment_method_id']) {
+                    || (int) $old->payment_method_id !== (int) $data['payment_method_id']
+                    || $old->payment_date?->toDateString() !== $data['payment_date']) {
                     $this->fail('El comprobante ya fue utilizado con otros datos.');
                 }
 
@@ -65,8 +96,11 @@ class ReceiptService
                 $this->fail('Selecciona una venta para relacionar un compromiso.');
             }
             $receipt = Receipt::create(['token' => $data['token'], 'client_id' => $client->id, 'user_id' => $client->user_id, 'dealership_id' => $client->dealership_id, 'recorded_by' => $actor->id, 'payment_method_id' => $method->id, 'amount' => Money::decimal($amount), 'reference' => $data['reference'] ?? null, 'notes' => $data['notes'] ?? null, 'source_order_id' => $data['source_order_id'] ?? null]);
+            if (! empty($data['proof_path'])) {
+                $receipt->update(['proof_path' => $data['proof_path']]);
+            }
             $pending = ! $actor->isAdmin();
-            $receipt->update(['approval_status' => $pending ? 'pending' : 'approved', 'approved_at' => $pending ? null : now(), 'approved_by' => $pending ? null : $actor->id, 'intended_installment_id' => $data['installment_id'] ?? null, 'intended_amount' => $intendedAmount]);
+            $receipt->update(['payment_date' => $data['payment_date'], 'approval_status' => $pending ? 'pending' : 'approved', 'approved_at' => $pending ? null : now(), 'approved_by' => $pending ? null : $actor->id, 'intended_installment_id' => $data['installment_id'] ?? null, 'intended_amount' => $intendedAmount]);
             Audit::log($actor->id, 'receive', 'receipt', $receipt->id, ['amount' => $receipt->amount]);
 
             return $receipt;
@@ -91,49 +125,64 @@ class ReceiptService
         return ['applied_cents' => $applied, 'credit_cents' => $amount - $applied, 'changed' => (bool) $order && $applied !== min($amount, $planned), 'blocked' => (bool) $blocked];
     }
 
-    public function approve(User $actor, Receipt $receipt, ?int $expectedAppliedCents = null): Receipt
+    public function approve(User $actor, Receipt $receipt, ?int $expectedAppliedCents = null, ?UploadedFile $approvalProof = null): Receipt
     {
-        return DB::transaction(function () use ($actor, $receipt, $expectedAppliedCents): Receipt {
-            Client::lockForUpdate()->findOrFail($receipt->client_id);
-            $receipt = Receipt::lockForUpdate()->findOrFail($receipt->id);
-            Gate::forUser($actor)->authorize('review', $receipt);
-            DealershipContext::forContactWrite($actor, null, $receipt->dealership_id);
-            if ($receipt->approval_status === 'approved' && ! $receipt->voided_at) {
-                return $receipt;
-            }
-            if ($receipt->approval_status !== 'pending' || $receipt->voided_at) {
-                $this->fail('Solo se puede aprobar un pago pendiente y sin anular.');
-            }
-            if ($receipt->source_order_id) {
-                $receipt->setRelation('sourceOrder', Order::lockForUpdate()->findOrFail($receipt->source_order_id));
-            }
-            $preview = $this->approvalPreview($receipt);
-            if ($expectedAppliedCents !== null && $preview['applied_cents'] !== $expectedAppliedCents) {
-                $this->fail('La deuda cambió desde que abriste el pago. Actualiza la ficha y revisa los importes antes de aprobar.');
-            }
-            $receipt->update(['approval_status' => 'approved', 'approved_at' => now(), 'approved_by' => $actor->id]);
-            if ($receipt->source_order_id) {
-                $order = Order::lockForUpdate()->findOrFail($receipt->source_order_id);
-                if ($order->cancelled || $order->client_id !== $receipt->client_id || $order->dealership_id !== $receipt->dealership_id) {
-                    $this->fail('La venta relacionada fue cancelada o cambió. Rechaza el pago y solicita un nuevo registro.');
+        Gate::forUser($actor)->authorize('review', $receipt);
+        Validator::make(['approval_proof' => $approvalProof], ['approval_proof' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120'])->validate();
+        $path = $approvalProof?->store('receipt-proofs', 'local');
+        $approved = null;
+        try {
+            $approved = DB::transaction(function () use ($actor, $receipt, $expectedAppliedCents, $path): Receipt {
+                Client::lockForUpdate()->findOrFail($receipt->client_id);
+                $receipt = Receipt::lockForUpdate()->findOrFail($receipt->id);
+                Gate::forUser($actor)->authorize('review', $receipt);
+                DealershipContext::forContactWrite($actor, null, $receipt->dealership_id);
+                if ($receipt->approval_status === 'approved' && ! $receipt->voided_at) {
+                    return $receipt;
                 }
-                $limit = $order->balance_cents;
-                if ($receipt->intended_installment_id) {
-                    $target = $order->installments->firstWhere('id', $receipt->intended_installment_id);
-                    if (! $target) {
-                        $this->fail('El compromiso relacionado ya no pertenece a la venta.');
+                if ($receipt->approval_status !== 'pending' || $receipt->voided_at) {
+                    $this->fail('Solo se puede aprobar un pago pendiente y sin anular.');
+                }
+                if (! $path) {
+                    throw ValidationException::withMessages(['approval_proof' => 'Adjunta el comprobante de ingreso en la cuenta de casa matriz para aprobar el pago.']);
+                }
+                if ($receipt->source_order_id) {
+                    $receipt->setRelation('sourceOrder', Order::lockForUpdate()->findOrFail($receipt->source_order_id));
+                }
+                $preview = $this->approvalPreview($receipt);
+                if ($expectedAppliedCents !== null && $preview['applied_cents'] !== $expectedAppliedCents) {
+                    $this->fail('La deuda cambió desde que abriste el pago. Actualiza la ficha y revisa los importes antes de aprobar.');
+                }
+                $receipt->update(['approval_status' => 'approved', 'approved_at' => now(), 'approved_by' => $actor->id, 'approval_proof_path' => $path]);
+                if ($receipt->source_order_id) {
+                    $order = Order::lockForUpdate()->findOrFail($receipt->source_order_id);
+                    if ($order->cancelled || $order->client_id !== $receipt->client_id || $order->dealership_id !== $receipt->dealership_id) {
+                        $this->fail('La venta relacionada fue cancelada o cambió. Rechaza el pago y solicita un nuevo registro.');
                     }
-                    $limit = $target->remaining_cents;
+                    $limit = $order->balance_cents;
+                    if ($receipt->intended_installment_id) {
+                        $target = $order->installments->firstWhere('id', $receipt->intended_installment_id);
+                        if (! $target) {
+                            $this->fail('El compromiso relacionado ya no pertenece a la venta.');
+                        }
+                        $limit = $target->remaining_cents;
+                    }
+                    $amount = min($limit, Money::cents($receipt->intended_amount ?? $receipt->amount));
+                    if ($amount > 0) {
+                        $this->apply($actor, $receipt, $order->id, ['token' => $receipt->token, 'amount' => Money::decimal($amount), 'installment_id' => $receipt->intended_installment_id]);
+                    }
                 }
-                $amount = min($limit, Money::cents($receipt->intended_amount ?? $receipt->amount));
-                if ($amount > 0) {
-                    $this->apply($actor, $receipt, $order->id, ['token' => $receipt->token, 'amount' => Money::decimal($amount), 'installment_id' => $receipt->intended_installment_id]);
-                }
-            }
-            Audit::log($actor->id, 'approve_receipt', 'receipt', $receipt->id, ['amount' => $receipt->amount, 'source_order_id' => $receipt->source_order_id]);
+                Audit::log($actor->id, 'approve_receipt', 'receipt', $receipt->id, ['amount' => $receipt->amount, 'source_order_id' => $receipt->source_order_id]);
 
-            return $receipt->fresh();
-        }, 3);
+                return $receipt->fresh();
+            }, 3);
+
+            return $approved;
+        } finally {
+            if ($path && $approved?->approval_proof_path !== $path) {
+                Storage::disk('local')->delete($path);
+            }
+        }
     }
 
     public function reject(User $actor, Receipt $receipt, string $reason): void

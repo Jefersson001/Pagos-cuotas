@@ -52,6 +52,7 @@ Route::middleware(['auth', 'auth.session', ActiveUser::class, RoleAccess::class]
     Route::post('/receipts/{receipt}/apply', [ReceiptController::class, 'apply'])->name('receipts.apply');
     Route::post('/receipts/{receipt}/approve', [ReceiptController::class, 'approve'])->name('receipts.approve');
     Route::get('/receipts/{receipt}/proof', [ReceiptController::class, 'proof'])->name('receipts.proof');
+    Route::get('/receipts/{receipt}/approval-proof', [ReceiptController::class, 'approvalProof'])->name('receipts.approval-proof');
     Route::post('/receipts/{receipt}/proof', [ReceiptController::class, 'attachProof'])->name('receipts.proof.store');
     Route::post('/receipts/{receipt}/reject', [ReceiptController::class, 'reject'])->name('receipts.reject');
     Route::post('/receipts/{receipt}/void', [ReceiptController::class, 'void'])->name('receipts.void');
