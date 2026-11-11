@@ -13,16 +13,49 @@ use App\Services\DealershipContext;
 use App\Services\ReceiptService;
 use App\Services\SalesService;
 use App\Support\MonthlyDateFilter;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class SalesController extends Controller
 {
+    public function headOfficeOrders(Request $request): View
+    {
+        abort_unless($request->user()->isHeadOffice(), 403);
+        MonthlyDateFilter::apply($request);
+        $concessionaires = Client::where('dealership_id', $request->user()->dealership_id)->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name']);
+        $request->validate([
+            'q' => 'nullable|string|max:255',
+            'concessionaire_id' => ['nullable', 'integer', Rule::in($concessionaires->modelKeys())],
+            'client_id' => ['nullable', 'integer', Rule::exists('clients', 'id')->where('dealership_id', $request->user()->dealership_id)->where('customer_kind', 'person')->whereIn('concessionaire_id', $concessionaires->modelKeys())],
+        ]);
+        $query = Order::headOfficePortfolio($request->user())->with(['client.concessionaire', 'dealership', 'payments', 'installments.allocations.payment'])
+            ->whereDate('created_at', '>=', $request->input('from'))->whereDate('created_at', '<=', $request->input('to'));
+        if ($request->filled('client_id')) {
+            $query->where('client_id', $request->integer('client_id'));
+        }
+        if ($request->filled('concessionaire_id')) {
+            $query->whereHas('client', fn (Builder $clients) => $clients->where('concessionaire_id', $request->integer('concessionaire_id')));
+        }
+        if ($request->filled('q')) {
+            $term = '%'.$request->input('q').'%';
+            $query->where(fn (Builder $orders) => $orders->where('description', 'like', $term)->orWhere('id', $request->input('q'))
+                ->orWhereHas('client', fn (Builder $clients) => $clients->where('name', 'like', $term)->orWhere('document', 'like', $term)));
+        }
+
+        return view('orders.index', [
+            'orders' => $query->latest()->paginate(15)->withQueryString(),
+            'readOnlyPortfolio' => true, 'concessionaires' => $concessionaires,
+            'clients' => Client::headOfficeCustomers($request->user())->with('concessionaire:id,name')->orderBy('name')->get(['id', 'name', 'document', 'concessionaire_id']),
+        ]);
+    }
+
     public function orders(Request $r)
     {
         MonthlyDateFilter::apply($r);

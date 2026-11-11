@@ -1,17 +1,26 @@
 @extends('layouts.app')
+@php
+$readOnlyPortfolio=$readOnlyPortfolio??false;
+$portfolioFilters=$readOnlyPortfolio?request()->only("concessionaire_id"):[];
+$money=fn($cents)=>'$'.number_format($cents/100,2);
+$allDates=array_merge(['from'=>'1900-01-01','to'=>$updatedAt->toDateString(),'date_mode'=>'custom'],$portfolioFilters);
+$allCredit=array_merge($allDates,['state'=>'credit']);
+@endphp
 @section('title','Resumen de ventas')
 @section('subtitle','Ventas, pagos y cobranza conectados en un solo lugar.')
 @section('actions')
+@if($readOnlyPortfolio)<span class="pill neutral">Solo consulta</span><a class="btn secondary" href="{{ route('head-office.orders.index',$portfolioFilters) }}">Ver ventas</a>@else
 <a class="btn secondary" href="{{ route('orders.create') }}"><i data-lucide="plus"></i>Nueva venta</a>
 <a class="btn primary" href="{{ route('receipts.create') }}"><i data-lucide="wallet"></i>Registrar pago</a>
+@endif
 @endsection
 @section('content')
-@php
-$money=fn($cents)=>'$'.number_format($cents/100,2);
-$allDates=['from'=>'1900-01-01','to'=>$updatedAt->toDateString(),'date_mode'=>'custom'];
-$allCredit=array_merge($allDates,['state'=>'credit']);
-@endphp
-@if($overdueCents>0 || $dueSoonCents>0)<nav class="portfolio-shortcuts module-alerts" aria-label="Compromisos que requieren atención">@if($overdueCents>0)<a href="{{ route('collections',['filter'=>'overdue']) }}"><i data-lucide="alarm-clock"></i>{{ $overdueCount }} compromisos vencidos · {{ $money($overdueCents) }}</a>@endif @if($dueSoonCents>0)<a href="{{ route('collections',['filter'=>'pending','from'=>today()->toDateString(),'to'=>$updatedAt->copy()->startOfDay()->addDays(6)->toDateString()]) }}"><i data-lucide="calendar-clock"></i>Vencen en 7 días · {{ $money($dueSoonCents) }}</a>@endif</nav>@endif
+@if($readOnlyPortfolio)
+<section data-live-panel>
+<form class="filters live-filters card mb-6" data-live-filters><label>Concesionario<select name="concessionaire_id"><option value="">Todos los concesionarios</option>@foreach($concessionaires as $dealer)<option value="{{ $dealer->id }}" @selected(request('concessionaire_id')==$dealer->id)>{{ $dealer->name }}</option>@endforeach</select></label><span class="pill neutral">{{ $clientCount }} clientes en consulta</span></form>
+@endif
+
+@if(!$readOnlyPortfolio&&($overdueCents>0 || $dueSoonCents>0))<nav class="portfolio-shortcuts module-alerts" aria-label="Compromisos que requieren atención">@if($overdueCents>0)<a href="{{ route('collections',['filter'=>'overdue']) }}"><i data-lucide="alarm-clock"></i>{{ $overdueCount }} compromisos vencidos · {{ $money($overdueCents) }}</a>@endif @if($dueSoonCents>0)<a href="{{ route('collections',['filter'=>'pending','from'=>today()->toDateString(),'to'=>$updatedAt->copy()->startOfDay()->addDays(6)->toDateString()]) }}"><i data-lucide="calendar-clock"></i>Vencen en 7 días · {{ $money($dueSoonCents) }}</a>@endif</nav>@endif
 <div class="customer-overview-period"><span><i data-lucide="calendar-days"></i>Movimientos del {{ $monthStart->format('d/m/Y') }} al {{ $updatedAt->format('d/m/Y') }} · Saldos actuales de toda la cartera</span><small>Actualizado a las {{ $updatedAt->format('H:i') }}</small></div>
 <div class="product-summary-kpis" data-sales-overview>
 @foreach([
@@ -46,23 +55,23 @@ $allCredit=array_merge($allDates,['state'=>'credit']);
 <div class="table-scroll"><table><thead><tr><th>Cliente / Venta</th><th>Compromiso</th><th>Vencimiento</th><th>Pendiente</th><th>Acciones</th></tr></thead><tbody>
 @forelse($dueItems as $row)
 @php($installment=$row['installment'])
-<tr data-row-link="{{ route('orders.show',$row['order']) }}"><td><strong>{{ $row['order']->client->name }}</strong><small>Venta #{{ $row['order']->id }}</small></td><td>{{ $installment->label }}</td><td>{{ $installment->due_date->format('d/m/Y') }}<small>{{ $installment->due_date->lt($updatedAt->copy()->startOfDay())?'Vencido':($installment->due_date->isSameDay($updatedAt)?'Vence hoy':'Próximo') }}</small></td><td><strong>{{ $money($installment->remaining_cents) }}</strong></td><td><a class="text-link" href="{{ route('orders.show',$row['order']) }}">Gestionar</a> @can('update',$row['order'])<a class="text-link" href="{{ route('orders.edit',$row['order']) }}">Editar</a>@endcan</td></tr>
+<tr data-row-link="{{ route($readOnlyPortfolio?'head-office.orders.show':'orders.show',$row['order']) }}"><td><strong>{{ $row['order']->client->name }}</strong><small>Venta #{{ $row['order']->id }}</small></td><td>{{ $installment->label }}</td><td>{{ $installment->due_date->format('d/m/Y') }}<small>{{ $installment->due_date->lt($updatedAt->copy()->startOfDay())?'Vencido':($installment->due_date->isSameDay($updatedAt)?'Vence hoy':'Próximo') }}</small></td><td><strong>{{ $money($installment->remaining_cents) }}</strong></td><td><a class="text-link" href="{{ route($readOnlyPortfolio?'head-office.orders.show':'orders.show',$row['order']) }}">{{ $readOnlyPortfolio?'Ver detalle':'Gestionar' }}</a> @can('update',$row['order'])<a class="text-link" href="{{ route('orders.edit',$row['order']) }}">Editar</a>@endcan</td></tr>
 @empty<tr><td colspan="5" class="empty">No hay cuotas vencidas ni vencimientos en los próximos 7 días.</td></tr>@endforelse
 </tbody></table></div>
-<div class="customer-overview-footer"><span>Incluye iniciales y cuotas parcialmente pagadas.</span><a class="text-link" href="{{ route('collections') }}">Ver cobranzas</a></div>
+<div class="customer-overview-footer"><span>Incluye iniciales y cuotas parcialmente pagadas.</span><a class="text-link" href="{{ route($readOnlyPortfolio?'head-office.orders.index':'collections',$portfolioFilters) }}">{{ $readOnlyPortfolio?'Ver ventas':'Ver cobranzas' }}</a></div>
 </section>
 <section class="card sales-overview-debtors">
 <div class="product-summary-section-heading"><div><h2>Principales deudores</h2><p>Hasta 5 titulares. Mayor deuda vencida primero; después, saldo total.</p></div><i data-lucide="users-round"></i></div>
 <div class="table-scroll"><table><thead><tr><th>Titular</th><th>Deuda total</th><th>Vencido</th><th>Mayor atraso</th><th>Acciones</th></tr></thead><tbody>
-@forelse($topDebtors as $account)<tr data-row-link="{{ route('clients.show',$account['client']) }}"><td><strong>{{ $account['client']->name }}</strong><small>{{ $account['client']->customer_kind==='dealership'?'Concesionario':'Cliente' }}</small></td><td>{{ $money($account['debt_cents']) }}</td><td><strong>{{ $money($account['overdue_cents']) }}</strong></td><td>{{ $account['days_overdue']>0?$account['days_overdue'].' '.($account['days_overdue']===1?'día':'días'):'Al día' }}</td><td><a class="text-link" href="{{ route('clients.show',$account['client']) }}">Ver estado</a> @can('update',$account['client'])<a class="text-link" href="{{ route('clients.edit',$account['client']) }}">Editar</a>@endcan</td></tr>
+@forelse($topDebtors as $account)<tr data-row-link="{{ route($readOnlyPortfolio?'head-office.clients.show':'clients.show',$account['client']) }}"><td><strong>{{ $account['client']->name }}</strong><small>{{ $readOnlyPortfolio?$account['client']->concessionaire->name:($account['client']->customer_kind==='dealership'?'Concesionario':'Cliente') }}</small></td><td>{{ $money($account['debt_cents']) }}</td><td><strong>{{ $money($account['overdue_cents']) }}</strong></td><td>{{ $account['days_overdue']>0?$account['days_overdue'].' '.($account['days_overdue']===1?'día':'días'):'Al día' }}</td><td><a class="text-link" href="{{ route($readOnlyPortfolio?'head-office.clients.show':'clients.show',$account['client']) }}">Ver estado</a> @can('update',$account['client'])<a class="text-link" href="{{ route('clients.edit',$account['client']) }}">Editar</a>@endcan</td></tr>
 @empty<tr><td colspan="5" class="empty">No hay clientes ni concesionarios con deuda pendiente.</td></tr>@endforelse
 </tbody></table></div>
 <p class="product-summary-footnote">Se muestra la deuda pendiente de todas las ventas vigentes. El saldo a favor se aplica por separado.</p>
 </section>
 <section class="card sales-overview-payments">
-<div class="product-summary-section-heading"><div><h2>Últimos pagos del mes</h2><p>Hasta 5 pagos confirmados y su aplicación actual.</p></div><a class="text-link" href="{{ route('receipts.index') }}">Ver pagos</a></div>
+<div class="product-summary-section-heading"><div><h2>Últimos pagos del mes</h2><p>Hasta 5 pagos confirmados y su aplicación actual.</p></div><a class="text-link" href="{{ route('receipts.index',$portfolioFilters) }}">Ver pagos</a></div>
 <div class="table-scroll"><table><thead><tr><th>Pago / Cliente</th><th>Recibido</th><th>Sin aplicar</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
-@forelse($recentReceipts as $receipt)<tr data-row-link="{{ route('receipts.show',$receipt) }}"><td><strong>{{ $receipt->client->name }}</strong><small>REC-{{ str_pad($receipt->id,6,'0',STR_PAD_LEFT) }} · {{ $receipt->created_at->format('d/m/Y') }}</small></td><td>{{ $money(\App\Support\Money::cents($receipt->amount)) }}</td><td>{{ $money($receipt->available_cents) }}</td><td><span class="status gray">{{ $receipt->status }}</span></td><td><a class="text-link" href="{{ route('receipts.show',$receipt) }}">Ver pago</a> @can('update',$receipt)<a class="text-link" href="{{ route('receipts.edit',$receipt) }}">Editar</a>@endcan</td></tr>
+@forelse($recentReceipts as $receipt)<tr data-row-link="{{ route($readOnlyPortfolio?'head-office.receipts.show':'receipts.show',$receipt) }}"><td><strong>{{ $receipt->client->name }}</strong><small>REC-{{ str_pad($receipt->id,6,'0',STR_PAD_LEFT) }} · {{ $receipt->created_at->format('d/m/Y') }}</small></td><td>{{ $money(\App\Support\Money::cents($receipt->amount)) }}</td><td>{{ $money($receipt->available_cents) }}</td><td><span class="status gray">{{ $receipt->status }}</span></td><td><a class="text-link" href="{{ route($readOnlyPortfolio?'head-office.receipts.show':'receipts.show',$receipt) }}">Ver pago</a> @can('update',$receipt)<a class="text-link" href="{{ route('receipts.edit',$receipt) }}">Editar</a>@endcan</td></tr>
 @empty<tr><td colspan="5" class="empty">Todavía no hay pagos confirmados este mes.</td></tr>@endforelse
 </tbody></table></div>
 </section>
@@ -72,7 +81,7 @@ $allCredit=array_merge($allDates,['state'=>'credit']);
 <div class="product-summary-section-heading"><div><h2>Antigüedad de la deuda</h2><p>Saldo vencido pendiente, según los días de atraso de cada inicial o cuota.</p></div><i data-lucide="calendar-clock"></i></div>
 <div class="sales-overview-aging-list">
 @foreach($aging as $bucket)<div><div><strong>{{ $bucket['label'] }}</strong><b>{{ $money($bucket['amount_cents']) }}</b></div><div class="product-summary-type-track"><span style="width:{{ $bucket['percent'] }}%"></span></div><small>{{ $bucket['count'] }} {{ $bucket['count']===1?'compromiso pendiente':'compromisos pendientes' }} · {{ number_format($bucket['percent'],1) }}% del vencido</small></div>@endforeach
-</div><a class="product-summary-catalog-link" href="{{ route('collections',['filter'=>'overdue']) }}">Ver cuotas vencidas<i data-lucide="arrow-right"></i></a>
+</div>@unless($readOnlyPortfolio)<a class="product-summary-catalog-link" href="{{ route('collections',['filter'=>'overdue']) }}">Ver cuotas vencidas<i data-lucide="arrow-right"></i></a>@endunless
 </section>
 <section class="card">
 <div class="product-summary-section-heading"><div><h2>Estado de la cartera</h2><p>Ventas de todo el historial y su estado actual.</p></div><i data-lucide="clipboard-list"></i></div>
@@ -86,7 +95,7 @@ $allCredit=array_merge($allDates,['state'=>'credit']);
 <div class="product-summary-section-heading"><div><h2>Saldo a favor por aprovechar</h2><p>Crédito que puede cubrir deudas del mismo titular.</p></div><i data-lucide="badge-dollar-sign"></i></div>
 <div class="sales-overview-credit-total"><strong data-sales-metric="applicable">{{ $money($applicableCents) }}</strong><span>disponible para aplicar a deudas actuales</span></div>
 <div class="sales-overview-credit-accounts">
-@forelse($creditAccounts as $account)<div><div><strong>{{ $account['client']->name }}</strong><small>Deuda {{ $money($account['debt_cents']) }} · Crédito {{ $money($account['credit_cents']) }}</small></div><a class="text-link" href="{{ route('receipts.index',array_merge($allCredit,['client_id'=>$account['client']->id])) }}">Aplicar saldo</a></div>
+@forelse($creditAccounts as $account)<div><div><strong>{{ $account['client']->name }}</strong><small>Deuda {{ $money($account['debt_cents']) }} · Crédito {{ $money($account['credit_cents']) }}</small></div><a class="text-link" href="{{ $readOnlyPortfolio?route('head-office.clients.show',$account['client']):route('receipts.index',array_merge($allCredit,['client_id'=>$account['client']->id])) }}">{{ $readOnlyPortfolio?'Ver cliente':'Aplicar saldo' }}</a></div>
 @empty<p class="product-summary-empty">{{ $creditCents>0?'El saldo a favor disponible queda para próximas compras; sus titulares no tienen deudas pendientes.':'No hay saldo a favor disponible para aplicar.' }}</p>@endforelse
 </div>
 <div class="sales-overview-receipt-states"><span>Pagos confirmados · Todo el historial</span>@foreach(['Sin aplicar','Parcialmente aplicado','Aplicado'] as $status)<div><span>{{ $status }}</span><strong>{{ $receiptStates->get($status,0) }}</strong></div>@endforeach</div>
@@ -102,4 +111,5 @@ $allCredit=array_merge($allDates,['state'=>'credit']);
 </section>
 </aside>
 </div>
+@if($readOnlyPortfolio)</section>@endif
 @endsection

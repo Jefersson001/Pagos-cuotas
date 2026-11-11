@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Client;
 use App\Models\Receipt;
 use App\Services\CustomerOverviewService;
 use App\Services\ProductOverviewService;
@@ -9,6 +10,7 @@ use App\Services\SalesOverviewService;
 use App\Services\SettingsOverviewService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class WorkspaceController extends Controller
@@ -39,6 +41,17 @@ class WorkspaceController extends Controller
     public function sales(Request $request, SalesOverviewService $overview): View
     {
         return view('workspace.sales', $overview->build($request));
+    }
+
+    public function headOfficeSales(Request $request, SalesOverviewService $overview): View
+    {
+        abort_unless($request->user()->isHeadOffice(), 403);
+        $request->validate(['concessionaire_id' => ['nullable', 'integer', Rule::exists('clients', 'id')->where('customer_kind', 'dealership')->where('dealership_id', $request->user()->dealership_id)]]);
+
+        return view('workspace.sales', $overview->build($request) + [
+            'readOnlyPortfolio' => true,
+            'concessionaires' => Client::where('dealership_id', $request->user()->dealership_id)->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name']),
+        ]);
     }
 
     public function settings(Request $request, SettingsOverviewService $overview): View

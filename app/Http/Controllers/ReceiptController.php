@@ -12,6 +12,7 @@ use App\Services\DealershipContext;
 use App\Services\ReceiptService;
 use App\Support\Money;
 use App\Support\MonthlyDateFilter;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -33,7 +34,7 @@ class ReceiptController extends Controller
             $r->merge(['from' => $oldest ? substr($oldest, 0, 10) : today()->toDateString(), 'to' => today()->toDateString(), 'date_mode' => 'custom']);
         }
         MonthlyDateFilter::apply($r);
-        $r->validate(['q' => 'nullable|string|max:120', 'state' => 'nullable|in:pending,rejected,credit,partial,applied,void', 'client_id' => 'nullable|integer', 'concessionaire_id' => 'nullable|integer']);
+        $r->validate(['q' => 'nullable|string|max:120', 'state' => 'nullable|in:all,pending,rejected,credit,partial,applied,void', 'client_id' => 'nullable|integer', 'concessionaire_id' => 'nullable|integer']);
         $query = Receipt::visibleTo($r->user())->with(['client.concessionaire', 'method', 'applications', 'dealership', 'recorder']);
         if ($r->filled('concessionaire_id')) {
             $query->whereHas('client', fn ($clients) => $clients->where('concessionaire_id', $r->integer('concessionaire_id')));
@@ -45,7 +46,13 @@ class ReceiptController extends Controller
         }
         if ($r->filled('q')) {
             $term = '%'.$r->input('q').'%';
-            $query->where(fn ($q) => $q->where('reference', 'like', $term)->orWhere('id', $r->input('q'))->orWhereHas('client', fn ($c) => $c->where('name', 'like', $term)->orWhere('document', 'like', $term)));
+            $receiptId = preg_match('/^(?:REC[- ]*)?0*([1-9][0-9]*)$/i', trim($r->input('q')), $matches) ? $matches[1] : null;
+            $query->where(function (Builder $matches) use ($term, $receiptId): void {
+                $matches->where('reference', 'like', $term)->orWhereHas('client', fn (Builder $clients) => $clients->where('name', 'like', $term)->orWhere('document', 'like', $term));
+                if ($receiptId !== null) {
+                    $matches->orWhere('id', $receiptId);
+                }
+            });
         }
         $confirmed = (clone $query)->whereNull('voided_at')->where('approval_status', 'approved');
         $received = (int) (clone $confirmed)->toBase()->selectRaw('COALESCE(SUM(ROUND(amount * 100)), 0) as cents')->value('cents');
@@ -65,7 +72,7 @@ class ReceiptController extends Controller
                 $query->whereRaw($appliedSql.' > 0');
             }
         }
-        $receipts = $query->latest()->paginate(20)->withQueryString();
+        $receipts = $query->latest()->orderByDesc('id')->paginate(20)->withQueryString();
 
         return view('receipts.index', compact('receipts', 'received', 'credit', 'pending', 'concessionaires'));
     }

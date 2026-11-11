@@ -27,7 +27,7 @@ $activeModule=collect($workspaceModules)->first(fn($module)=>request()->routeIs(
                 </div>
             </details>
         @else
-            <a href="{{ route($child['route']) }}" @class(['is-active'=>request()->routeIs($child['route']) || ($child['route']==='concessionaires.index'&&$isConcessionaire) || ($child['route']==='products.index'&&request()->routeIs('products.*')) || ($child['route']==='orders.index'&&request()->routeIs('orders.*')) || ($child['route']==='receipts.index'&&request()->routeIs('receipts.*')) || ($child['route']==='users'&&request()->routeIs('users.*')) || ($child['route']==='clients.index'&&request()->routeIs('clients.*','concessionaires.*')) || ($child['route']==='head-office.clients'&&request()->routeIs('head-office.clients*','head-office.orders.show','head-office.receipts.show'))])>{{ $child['name'] }}</a>
+            <a href="{{ route($child['route']) }}" @class(['is-active'=>request()->routeIs($child['route']) || ($child['route']==='concessionaires.index'&&$isConcessionaire) || ($child['route']==='products.index'&&request()->routeIs('products.*')) || ($child['route']==='orders.index'&&request()->routeIs('orders.*')) || ($child['route']==='receipts.index'&&request()->routeIs('receipts.*')) || ($child['route']==='users'&&request()->routeIs('users.*')) || ($child['route']==='clients.index'&&request()->routeIs('clients.*','concessionaires.*')) || ($child['route']==='head-office.clients'&&request()->routeIs('head-office.clients*')) || ($child['route']==='head-office.orders.index'&&request()->routeIs('head-office.orders.*'))])>{{ $child['name'] }}</a>
         @endif
     @endif
 @endforeach

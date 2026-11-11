@@ -24,8 +24,15 @@ class SalesOverviewService
             $previousStart = $monthStart->copy()->subMonthNoOverflow();
             $previousEnd = $previousStart->copy()->day(min($now->day, $previousStart->daysInMonth))->setTime($now->hour, $now->minute, $now->second);
             $inMonth = fn (CarbonInterface $date): bool => $date->betweenIncluded($monthStart, $now);
-            $clients = Client::visibleTo($request->user())->get();
-            $orders = Order::visibleTo($request->user())->whereIn('client_id', $clients->modelKeys())->where('created_at', '<=', $now)
+            $clientQuery = $request->user()->isHeadOffice()
+                ? Client::headOfficeCustomers($request->user())->with('concessionaire')
+                : Client::visibleTo($request->user());
+            if ($request->user()->isHeadOffice() && $request->filled('concessionaire_id')) {
+                $clientQuery->where('concessionaire_id', $request->integer('concessionaire_id'));
+            }
+            $clients = $clientQuery->get();
+            $orderQuery = $request->user()->isHeadOffice() ? Order::headOfficePortfolio($request->user()) : Order::visibleTo($request->user());
+            $orders = $orderQuery->whereIn('client_id', $clients->modelKeys())->where('created_at', '<=', $now)
                 ->with(['client', 'payments.allocations', 'installments.allocations.payment'])->get();
             $receipts = Receipt::visibleTo($request->user())->whereIn('client_id', $clients->modelKeys())->where('created_at', '<=', $now)
                 ->with(['client', 'method', 'applications'])->get();
@@ -107,6 +114,7 @@ class SalesOverviewService
             })->filter(fn (int $amount): bool => $amount > 0);
 
             return [
+                'clientCount' => $clients->count(),
                 'aging' => $aging, 'previousStart' => $previousStart, 'previousEnd' => $previousEnd, 'comparison' => $comparison,
                 'topDebtors' => $accounts->where('debt_cents', '>', 0)->sort(fn (array $left, array $right): int => ($right['overdue_cents'] <=> $left['overdue_cents']) ?: ($right['debt_cents'] <=> $left['debt_cents']) ?: ($right['days_overdue'] <=> $left['days_overdue']) ?: strcasecmp($left['client']->name, $right['client']->name))->take(5)->values(),
                 'updatedAt' => $now, 'monthStart' => $monthStart, 'weekEnd' => $weekEnd,

@@ -585,3 +585,10 @@
 .receipt-list-totals .detail-grid small { margin-bottom: 5px; }
 .receipt-list-totals .detail-grid strong { overflow-wrap: anywhere; }
 @media(max-width:800px) { .receipt-list-totals .detail-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+@media(max-width:640px) {
+ .workspace-navigation nav { position: relative; }
+ .workspace-nav-group { position: static; }
+ .workspace-nav-submenu { left: 0; right: 0; min-width: 0; max-width: 100%; }
+ .workspace-nav-submenu a { white-space: normal; overflow-wrap: anywhere; }
+}

@@ -68,8 +68,7 @@ class ClientController extends Controller
 
     public function directoryOrder(Request $request, int $order): View
     {
-        $sale = Order::where('dealership_id', $request->user()->dealership_id)
-            ->whereHas('client', fn (Builder $clients) => $clients->headOfficeCustomers($request->user()))
+        $sale = Order::headOfficePortfolio($request->user())
             ->with(['client.concessionaire', 'client.receipts.applications', 'owner', 'items', 'payments.method', 'payments.recorder', 'installments.allocations.payment'])
             ->findOrFail($order);
 

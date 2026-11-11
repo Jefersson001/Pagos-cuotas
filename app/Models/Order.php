@@ -3,9 +3,18 @@
 namespace App\Models;
 
 use App\Support\Money;
+use Illuminate\Database\Eloquent\Builder;
 
 class Order extends OwnedModel
 {
+    public function scopeHeadOfficePortfolio(Builder $query, User $actor): Builder
+    {
+        abort_unless($actor->isHeadOffice() && $actor->hasActiveAccess(), 403);
+
+        return $query->where('dealership_id', $actor->dealership_id)
+            ->whereHas('client', fn (Builder $clients) => $clients->headOfficeCustomers($actor));
+    }
+
     protected function casts(): array
     {
         return ['total' => 'decimal:2', 'initial_amount' => 'decimal:2', 'cancelled' => 'boolean'];
