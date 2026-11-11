@@ -27,6 +27,10 @@ Route::middleware(['auth', 'auth.session', ActiveUser::class, RoleAccess::class]
     Route::post('/dealership-context', [DealershipController::class, 'context'])->name('dealership-context');
     Route::get('/', [WorkspaceController::class, 'index'])->name('home');
     Route::get('/casa-matriz', [PortalController::class, 'headOffice'])->name('head-office.overview');
+    Route::get('/casa-matriz/clientes', [ClientController::class, 'directory'])->name('head-office.clients');
+    Route::get('/casa-matriz/clientes/{client}', [ClientController::class, 'directoryShow'])->whereNumber('client')->name('head-office.clients.show');
+    Route::get('/casa-matriz/ventas/{order}', [ClientController::class, 'directoryOrder'])->whereNumber('order')->name('head-office.orders.show');
+    Route::get('/casa-matriz/pagos/{receipt}', [ClientController::class, 'directoryReceipt'])->whereNumber('receipt')->name('head-office.receipts.show');
     Route::get('/mi-cuenta', [PortalController::class, 'account'])->name('portal.account');
     Route::get('/mi-cuenta/ventas/{order}', [PortalController::class, 'order'])->name('portal.order');
     Route::get('/mi-cuenta/pagos/{receipt}', [PortalController::class, 'receipt'])->name('portal.receipt');

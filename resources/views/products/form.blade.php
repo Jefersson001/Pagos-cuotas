@@ -1,15 +1,14 @@
 @extends('layouts.app')
 @section('title',$product->exists?(($readOnly??false)?$product->name:'Editar producto'):'Nuevo producto')
-@section('subtitle','Un catálogo que se adapta a lo que vendes.')
 @section('actions')<a class="btn secondary" href="{{ route('products.index') }}">Volver a la lista</a>@endsection
 @section('content')
 @if($product->exists)<x-record-actions type="product" :record="$product" :edit="route('products.edit',$product)" :view="route('products.show',$product)" :read-only="$readOnly??false" :can-edit="auth()->user()->can('update',$product)" :can-delete="auth()->user()->can('delete',$product)" />@endif
-<x-record-status :current="$product->exists?($product->active?'Activo':'Inactivo'):'Borrador'" />
+
 @php
 $vehicleImages=collect(config('product_images',[]))->map(fn($vehicle)=>['label'=>$vehicle['label'],'aliases'=>$vehicle['aliases']??[],'colors'=>collect($vehicle['colors'])->map(fn($path)=>asset($path))->all()])->all();
 @endphp
 <form method="post" enctype="multipart/form-data" action="{{ $product->exists?route('products.update',$product):route('products.store') }}" class="card form-card" x-data="productPlan(@js(['type'=>old('product_type',$product->product_type??'general'),'name'=>old('name',$product->name??''),'image'=>$product->image_path?asset('storage/'.$product->image_path):'','price'=>old('price',$product->price??''),'payInInstallments'=>(bool)old('pay_in_installments',$product->pay_in_installments??true),'initial'=>old('initial_amount',$product->initial_amount??'0.00'),'count'=>old('installment_count',$product->installment_count??5),'model'=>old('model',$product->model??''),'color'=>old('color',$product->color??''),'images'=>$vehicleImages]))">@csrf @if($product->exists)@method('PUT')@endif
-<fieldset class="record-fields" @disabled($readOnly??false)><h2>Datos del producto</h2><div class="form-grid product-details-grid">
+<fieldset class="record-fields" @disabled($readOnly??false)><div class="record-card-heading"><h2>Datos del producto</h2><x-record-status :current="$product->exists?($product->active?'Activo':'Inactivo'):'Borrador'" /></div><div class="form-grid product-details-grid">
 <label>Tipo de producto<select name="product_type" x-model="type"><option value="general">Producto general</option><option value="vehicle">Vehículo</option><option value="service">Servicio</option></select></label>
 <label>Referencia / Código<input name="sku" value="{{ old('sku',$product->sku) }}" maxlength="80" placeholder="Opcional"></label>
 <label x-show="type!=='vehicle'">Nombre del producto<input name="name" x-model="productName" :required="type!=='vehicle'" :disabled="type==='vehicle'" maxlength="180"></label>

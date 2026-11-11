@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Factories\ClientFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,6 +16,15 @@ class Client extends OwnedModel
     protected function casts(): array
     {
         return ['active' => 'boolean', 'concessionaire_id' => 'integer', 'list_number' => 'integer', 'refrigerators' => 'integer', 'refrigerators_assigned_at' => 'date', 'listed_started_at' => 'date', 'registry_date' => 'date', 'started_at' => 'date'];
+    }
+
+    public function scopeHeadOfficeCustomers(Builder $query, User $actor): Builder
+    {
+        abort_unless($actor->isHeadOffice() && $actor->hasActiveAccess(), 403);
+
+        return $query->where('dealership_id', $actor->dealership_id)->where('customer_kind', 'person')
+            ->whereHas('concessionaire', fn (Builder $dealers) => $dealers
+                ->where('customer_kind', 'dealership')->where('dealership_id', $actor->dealership_id));
     }
 
     public function concessionaire(): BelongsTo

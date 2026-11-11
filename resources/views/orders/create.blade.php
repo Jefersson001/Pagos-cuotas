@@ -2,11 +2,11 @@
 @section('title','Nueva venta')
 @section('subtitle','De la primera conversación al último pago. Configura tu venta paso a paso.')
 @section('content')
-<x-record-status :states="['Borrador','Pendiente de pago','En proceso de pago','Atrasado','Pagado','Cancelado']" current="Borrador" />
+
 <form method="post" action="{{ route('orders.store') }}" class="card form-card" x-data="saleWizard(@js(['items'=>$selectedItems,'productsUrl'=>$productSearchUrl,'count'=>old('installment_count',5),'frequency'=>old('frequency','monthly'),'first'=>old('first_due',now()->toDateString()),'custom'=>old('custom',[]),'client'=>$selectedClient,'clientsUrl'=>$clientSearchUrl]))" @submit="dirty=false">@csrf<input type="hidden" name="token" value="{{ old('token',(string)Str::uuid()) }}">
 <div class="steps">@foreach(['Cliente','Productos','Importes','Plan de pagos','Cronograma','Confirmación'] as $n=>$label)<button type="button" :class="{'active':step==={{ $n }},'done':step>{{ $n }}}" x-show="balance>0 || {{ $n }}<2 || {{ $n }}===5" :disabled="balance===0 && {{ $n }}>1 && {{ $n }}<5" @click="if({{ $n }}<step)step={{ $n }}"><span x-text="balance===0&&{{ $n }}===5?3:{{ $n+1 }}"></span>{{ $label }}</button>@endforeach</div>
 <section x-show="step===0" data-step="0">
- <h2>¿Para quién es esta venta?</h2><p class="muted mb-6">Busca y selecciona el cliente de la venta.</p>
+ <div class="record-card-heading"><h2>¿Para quién es esta venta?</h2><x-record-status :states="['Borrador','Pendiente de pago','En proceso de pago','Atrasado','Pagado','Cancelado']" current="Borrador" /></div><p class="muted mb-6">Busca y selecciona el cliente de la venta.</p>
  @include('components.client-relation')
     <a class="text-link" href="{{ route('clients.create') }}">Registrar un nuevo cliente <i data-lucide="arrow-up-right"></i></a>
     </section>

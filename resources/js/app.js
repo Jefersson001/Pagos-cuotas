@@ -1,4 +1,5 @@
 import Alpine from 'alpinejs';
+import { initializeViewTabs } from './view-tabs';
 import Chart from 'chart.js/auto';
 import { createIcons, Layers, LayoutDashboard, ShoppingBag, UsersRound, CalendarClock, ChartNoAxesCombined, UserCog, ShieldCheck, Settings2, LogOut, Menu, SunMoon, CircleCheck, ArrowLeft, ArrowRight, Plus, Sparkles, ArrowUpRight, Wallet, BadgeDollarSign, AlarmClock, ChartPie, ChevronRight, CalendarCheck, Search, UserPlus, Check, Pencil, UserRound, Printer, MessageCircle, Download, CalendarDays, PackageCheck, TrendingUp, Trophy, Shapes, Car, Wrench, Package, Calculator, ClipboardList } from 'lucide';
 const icons={Layers,LayoutDashboard,ShoppingBag,UsersRound,CalendarClock,ChartNoAxesCombined,UserCog,ShieldCheck,Settings2,LogOut,Menu,SunMoon,CircleCheck,ArrowLeft,ArrowRight,Plus,Sparkles,ArrowUpRight,Wallet,BadgeDollarSign,AlarmClock,ChartPie,ChevronRight,CalendarCheck,Search,UserPlus,Check,Pencil,UserRound,Printer,MessageCircle,Download,CalendarDays,PackageCheck,TrendingUp,Trophy,Shapes,Car,Wrench,Package,Calculator,ClipboardList};
@@ -112,7 +113,7 @@ Alpine.data('receiptForm',seed=>({
  try{const url=new URL(seed.accountUrl,location.origin);url.searchParams.set('client_id',this.clientId);const response=await fetch(url,{cache:'no-store',credentials:'same-origin',headers:{Accept:'application/json'}});if(!response.ok)throw new Error('No se pudo consultar la cuenta del cliente.');const data=await response.json();if(version!==this.accountVersion)return;this.orders=data.orders;this.methods=data.methods;this.credit=data.credit;this.debt=data.debt;if(!this.methodId)this.methodId=String(this.methods[0]?.id||'');}
  catch(e){if(version===this.accountVersion)this.accountError=e.message;}finally{if(version===this.accountVersion)this.accountLoading=false;}}
 }));
-Alpine.start();createIcons({icons});
+Alpine.start();createIcons({icons});initializeViewTabs();
 Chart.defaults.font.family='Inter, system-ui, sans-serif';Chart.defaults.color='#737373';
 Chart.defaults.animation=false;
 function initializeCharts(root=document){const style=getComputedStyle(document.body),palette={red:style.getPropertyValue('--brand-red').trim(),surface:style.getPropertyValue('--surface').trim(),muted:style.getPropertyValue('--text-muted').trim(),line:style.getPropertyValue('--line').trim(),fill:style.getPropertyValue('--chart-fill').trim(),paid:style.getPropertyValue('--chart-paid').trim(),cancelled:style.getPropertyValue('--chart-cancelled').trim()};Chart.defaults.color=palette.muted;root.querySelectorAll('[data-chart]').forEach(canvas=>{

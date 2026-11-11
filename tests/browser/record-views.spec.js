@@ -16,7 +16,7 @@ test('las filas consultan y las acciones permiten editar duplicar y eliminar',as
  let row=page.locator('tbody tr').filter({hasText:'Método temporal'});
  await expect(row.getByRole('link',{name:'Editar',exact:true})).toBeVisible();
  await row.locator('td').nth(1).click();
- await expect(page.getByText('Solo lectura',{exact:true})).toBeVisible();
+ await expect(page.getByText('Solo lectura',{exact:true})).toBeVisible();await expect(page.locator('.page-actions .record-actions')).toBeVisible();await expect(page.locator('[data-record-status] .record-status-step')).toHaveCount(1);await expect(page.locator('.card [data-record-status]')).toBeVisible();
  await expect(page.getByLabel('Nombre',{exact:true})).toBeDisabled();
  await expect(page.getByRole('button',{name:'Guardar método de pago',exact:true})).toHaveCount(0);
  await expect(page.locator('[data-record-status] [aria-current=step]')).toHaveText('Activo');

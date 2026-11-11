@@ -4,22 +4,90 @@ namespace App\Http\Controllers;
 
 use App\Models\Client;
 use App\Models\Dealership;
+use App\Models\Order;
+use App\Models\Receipt;
 use App\Models\User;
 use App\Services\Audit;
 use App\Services\CustomerOverviewService;
 use App\Services\DealershipContext;
 use App\Services\HeadOfficeOverviewService;
+use App\Services\ReceiptService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class ClientController extends Controller
 {
+    public function directory(Request $request): View
+    {
+        abort_unless($request->user()->isHeadOffice(), 403);
+        $values = $request->validate([
+            'q' => 'nullable|string|max:255',
+            'active' => 'nullable|in:0,1',
+            'concessionaire_id' => ['nullable', 'integer', Rule::exists('clients', 'id')->where('customer_kind', 'dealership')->where('dealership_id', $request->user()->dealership_id)],
+        ]);
+        $query = Client::headOfficeCustomers($request->user())->with(['owner', 'concessionaire']);
+        if ($request->filled('q')) {
+            $term = '%'.$values['q'].'%';
+            $query->where(fn (Builder $clients) => $clients->where('name', 'like', $term)->orWhere('document', 'like', $term)->orWhere('phone', 'like', $term)->orWhere('email', 'like', $term)->orWhere('city', 'like', $term));
+        }
+        if ($request->filled('active')) {
+            $query->where('active', $request->boolean('active'));
+        }
+        if ($request->filled('concessionaire_id')) {
+            $query->where('concessionaire_id', $request->integer('concessionaire_id'));
+        }
+
+        return view('clients.index', [
+            'clients' => $query->latest()->paginate(15)->withQueryString(),
+            'customerKind' => 'person',
+            'readOnlyDirectory' => true,
+            'concessionaires' => Client::where('dealership_id', $request->user()->dealership_id)->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name']),
+        ]);
+    }
+
+    public function directoryShow(Request $request, int $client): View
+    {
+        $contact = Client::headOfficeCustomers($request->user())->with([
+            'concessionaire', 'dealership',
+            'orders' => fn (HasMany $orders) => $orders->where('dealership_id', $request->user()->dealership_id),
+            'orders.payments.method', 'orders.installments.allocations.payment',
+            'receipts' => fn (HasMany $receipts) => $receipts->where('dealership_id', $request->user()->dealership_id),
+            'receipts.method', 'receipts.applications',
+        ])->findOrFail($client);
+
+        return view('clients.show', ['client' => $contact, 'readOnlyPortfolio' => true]);
+    }
+
+    public function directoryOrder(Request $request, int $order): View
+    {
+        $sale = Order::where('dealership_id', $request->user()->dealership_id)
+            ->whereHas('client', fn (Builder $clients) => $clients->headOfficeCustomers($request->user()))
+            ->with(['client.concessionaire', 'client.receipts.applications', 'owner', 'items', 'payments.method', 'payments.recorder', 'installments.allocations.payment'])
+            ->findOrFail($order);
+
+        return view('orders.show', ['order' => $sale, 'methods' => collect(), 'readOnlyPortfolio' => true]);
+    }
+
+    public function directoryReceipt(Request $request, int $receipt, ReceiptService $service): View
+    {
+        abort_unless($request->user()->isHeadOffice(), 403);
+        $payment = Receipt::visibleTo($request->user())->with(['client.concessionaire', 'method', 'recorder', 'approver', 'rejecter', 'voider', 'sourceOrder', 'intendedInstallment', 'applications.order', 'applications.recorder', 'applications.allocations.installment'])->findOrFail($receipt);
+
+        return view('receipts.show', [
+            'receipt' => $payment, 'orders' => collect(), 'editing' => false,
+            'approvalPreview' => $service->approvalPreview($payment), 'duplicateReference' => false,
+            'readOnlyPortfolio' => true,
+        ]);
+    }
+
     public function index(Request $r, CustomerOverviewService $overview): View
     {
         $r->validate(['q' => 'nullable|string|max:255', 'customer_kind' => 'nullable|in:person,dealership', 'business_type' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1', 'account_state' => 'nullable|in:debt,overdue,credit,due_soon,received,sales']);

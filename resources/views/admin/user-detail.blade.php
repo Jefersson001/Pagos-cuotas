@@ -4,6 +4,6 @@
 @section('actions')<a class="btn secondary" href="{{ route('users') }}">Volver a usuarios</a>@endsection
 @section('content')
 @if($u->exists)<x-record-actions type="user" :record="$u" :edit="route('users.edit',$u)" :view="route('users.show',$u)" :read-only="$readOnly??false" :can-delete="auth()->user()->isAdmin()" :can-duplicate="auth()->user()->isAdmin()" />@endif
-<x-record-status :current="$u->exists?($u->active?'Activo':'Inactivo'):'Borrador'" />
-<section class="card form-card"><h2>Datos del usuario</h2>@include('admin.user-form')</section>
+
+<section class="card form-card"><div class="record-card-heading"><h2>Datos del usuario</h2><x-record-status :current="$u->exists?($u->active?'Activo':'Inactivo'):'Borrador'" /></div>@include('admin.user-form')</section>
 @endsection

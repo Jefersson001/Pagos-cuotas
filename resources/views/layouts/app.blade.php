@@ -27,14 +27,14 @@ $activeModule=collect($workspaceModules)->first(fn($module)=>request()->routeIs(
                 </div>
             </details>
         @else
-            <a href="{{ route($child['route']) }}" @class(['is-active'=>request()->routeIs($child['route']) || ($child['route']==='concessionaires.index'&&$isConcessionaire) || ($child['route']==='products.index'&&request()->routeIs('products.*')) || ($child['route']==='orders.index'&&request()->routeIs('orders.*')) || ($child['route']==='receipts.index'&&request()->routeIs('receipts.*')) || ($child['route']==='users'&&request()->routeIs('users.*')) || ($child['route']==='clients.index'&&request()->routeIs('clients.*','concessionaires.*'))])>{{ $child['name'] }}</a>
+            <a href="{{ route($child['route']) }}" @class(['is-active'=>request()->routeIs($child['route']) || ($child['route']==='concessionaires.index'&&$isConcessionaire) || ($child['route']==='products.index'&&request()->routeIs('products.*')) || ($child['route']==='orders.index'&&request()->routeIs('orders.*')) || ($child['route']==='receipts.index'&&request()->routeIs('receipts.*')) || ($child['route']==='users'&&request()->routeIs('users.*')) || ($child['route']==='clients.index'&&request()->routeIs('clients.*','concessionaires.*')) || ($child['route']==='head-office.clients'&&request()->routeIs('head-office.clients*','head-office.orders.show','head-office.receipts.show'))])>{{ $child['name'] }}</a>
         @endif
     @endif
 @endforeach
 </nav></div></div>@endif
 <main class="workspace-main">
 @if($currentDealership && !$currentDealership->active)<div class="notice error" data-dealership-warning>La empresa está inactiva. Puedes consultar el historial.</div>@endif
-@if(!request()->routeIs('home'))<div class="page-heading"><div class="page-heading-copy"><div class="page-title-row"><a class="workspace-back" href="{{ route('home') }}" aria-label="Volver al inicio" title="Volver al inicio"><i data-lucide="arrow-left" aria-hidden="true"></i></a><h1>@yield('title')</h1></div>@if(request()->routeIs('*.show','portal.order','portal.receipt'))<p class="subtitle">@yield('subtitle')</p>@endif</div><div class="page-actions" data-page-actions>@yield('actions')</div></div>@endif
+@if(!request()->routeIs('home'))<div class="page-heading"><div class="page-heading-copy"><div class="page-title-row"><a class="workspace-back" href="{{ route('home') }}" aria-label="Volver al inicio" title="Volver al inicio"><i data-lucide="arrow-left" aria-hidden="true"></i></a><h1>@yield('title')</h1>@stack('record-mode')</div>@if(request()->routeIs('*.show','portal.order','portal.receipt') && $__env->hasSection('subtitle'))<p class="subtitle">@yield('subtitle')</p>@endif</div><div class="page-actions" data-page-actions>@yield('actions')@stack('record-actions')</div></div>@endif
 @if(session('success'))<div class="notice success" role="status"><i data-lucide="circle-check"></i>{{ session('success') }}</div>@endif
 @if($errors->any())<div class="notice error" role="alert"><div><strong>Revisa la información</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div></div>@endif
 @yield('content')

@@ -7,6 +7,14 @@
 @if($receipt->approval_status==='pending'&&!$receipt->voided_at)<p class="notice mb-6">Pago recibido, pendiente de aprobación por casa matriz. Todavía no reduce tu deuda ni está disponible como saldo a favor.</p>@elseif($receipt->approval_status==='rejected')<p class="notice error mb-6">Este pago fue rechazado. Consulta con tu concesionario para revisar el registro.</p>@elseif($receipt->approved_at)<p class="muted mb-6">Aprobado el {{ $receipt->approved_at->format('d/m/Y H:i') }}.</p>@endif
 <div class="receipt-statuses mb-6"><span class="pill neutral">Aprobación: {{ $receipt->approval_label }}</span><span class="pill neutral">Aplicación: {{ $receipt->application_status }}</span></div>
 @if($receipt->available_cents>0)<p class="notice mb-6">Este pago tiene &#36;{{ number_format($receipt->available_cents/100,2) }} a favor. Tu concesionario puede aplicarlo a una venta pendiente; hasta entonces, la deuda no cambia.</p>@endif
+<x-view-tabs id="mi-pago" >
+<div data-tab-panel="Resumen" data-tab-key="resumen">
 <div class="card form-card mb-6 receipt-totals"><div class="detail-grid"><div><small>Fecha de pago</small><strong>{{ $receipt->payment_date?->format('d/m/Y') ?? 'No informada' }}</strong></div><div><small>Fecha de registro</small><strong>{{ $receipt->created_at->format('d/m/Y H:i') }}</strong></div><div><small>Recibido</small><strong>&#36;{{ number_format($receipt->amount,2) }}</strong></div><div><small>Aplicado</small><strong>&#36;{{ number_format($receipt->applied_cents/100,2) }}</strong></div><div><small>Disponible</small><strong>&#36;{{ number_format($receipt->available_cents/100,2) }}</strong></div></div><p class="muted mt-4">{{ $receipt->method->name }} · {{ $receipt->reference?:'Sin referencia' }}</p></div>
+
+</div>
+<div data-tab-panel="Aplicaciones" data-tab-key="aplicaciones">
 <section class="card table-card"><div class="card-heading"><h2>Aplicaciones de mi pago</h2></div><div class="table-scroll"><table><thead><tr><th>Venta</th><th>Aplicado</th><th>Cuotas</th><th>Estado</th></tr></thead><tbody>@forelse($receipt->applications as $payment)<tr><td><a class="text-link" href="{{ route('portal.order',$payment->order_id) }}">#{{ $payment->order_id }}</a></td><td>&#36;{{ number_format($payment->amount,2) }}</td><td>@foreach($payment->allocations as $allocation)<small>{{ $allocation->installment->label }}: &#36;{{ number_format($allocation->amount,2) }}</small>@endforeach</td><td>{{ $payment->voided_at?'Desvinculado':'Confirmado' }}</td></tr>@empty<tr><td colspan="4" class="empty">Este pago todavía no está aplicado a una venta.</td></tr>@endforelse</tbody></table></div></section>
+
+</div>
+</x-view-tabs>
 @endsection
