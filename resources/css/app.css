@@ -487,11 +487,16 @@
 .sale-credit-prompt { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .sale-credit-prompt p { margin-top: 5px; font-size: 11px; line-height: 1.6; }
 .sale-credit-prompt > button { flex-shrink: 0; }
-.payment-history { list-style: none; margin-top: 16px; padding-left: 0; }
-.payment-history li { padding: 10px 0 10px 14px; border-left: 2px solid var(--brand-line); }
+.payment-history { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px 20px; list-style: none; margin: 0; padding: 0; }
+.payment-history li { display: flex; flex-direction: column; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
 .payment-history strong { display: block; font-size: 12px; }
-.payment-history span,.payment-history p { display: block; margin-top: 5px; font-size: 11px; color: var(--text-muted); }
-.receipt-history > summary { cursor: pointer; font-weight: 600; font-size: 12px; }
+.payment-history span,.payment-history p { display: block; margin: 0; font-size: 11px; color: var(--text-muted); }
+@media(max-width:980px) {
+ .payment-history { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:640px) {
+ .payment-history { grid-template-columns: minmax(0,1fr); }
+}
 .module-alerts { padding: 0; margin-bottom: 14px; }
 .module-payment-alert { margin-bottom: 14px; }
 @media(max-width:640px) { .sale-credit-prompt { align-items: flex-start; flex-direction: column; gap: 10px; } }
@@ -592,3 +597,40 @@
  .workspace-nav-submenu { left: 0; right: 0; min-width: 0; max-width: 100%; }
  .workspace-nav-submenu a { white-space: normal; overflow-wrap: anywhere; }
 }
+
+.receipt-review-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 12px; }
+.workspace-main .receipt-review-heading > h2 { margin: 0; }
+.receipt-review-heading > p { margin: 0; font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere; }
+.receipt-review-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 20px; margin-bottom: 12px; font-size: 11px; }
+.receipt-review-meta > div { min-width: 0; overflow-wrap: anywhere; }
+.receipt-review-meta small { display: inline; font-size: inherit; color: var(--text-muted); }
+.receipt-review-amounts small { display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 4px; }
+.receipt-review-meta strong { font-size: inherit; overflow-wrap: anywhere; }
+.receipt-review-meta .receipt-review-sale { flex: 1 1 240px; margin: 0; font-size: inherit; color: var(--text-muted); overflow-wrap: anywhere; }
+.receipt-review-sale strong { color: var(--text); }
+.receipt-review-amounts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; padding: 12px 14px; background: var(--surface-subtle); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 16px; }
+.receipt-review-amounts strong { font-size: 18px; overflow-wrap: anywhere; }
+.receipt-review-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.2fr); gap: 20px; }
+.receipt-review-grid > section { min-width: 0; }
+.receipt-review-grid h3 { font-size: 12px; font-weight: 600; margin: 0 0 10px; }
+.receipt-review-grid.receipt-review-readonly { grid-template-columns: minmax(0,1fr); }
+.receipt-review-approval { border-left: 1px solid var(--line); padding-left: 20px; }
+.receipt-review label { font-size: 11px; margin-bottom: 10px; }
+.receipt-review label small { color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.receipt-review input { min-width: 0; }
+.receipt-review-links,.receipt-review-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.receipt-review-actions { margin-top: 12px; }
+.receipt-review .btn { padding: 8px 12px; font-size: 11px; }
+.receipt-review-preview { display: block; max-width: 260px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-subtle); }
+.receipt-review-preview img { display: block; width: 100%; height: 110px; object-fit: contain; border-radius: 6px; }
+.receipt-review-replace { margin-top: 12px; }
+.receipt-review-replace form { margin-top: 10px; }
+.receipt-review-rejection { padding: 12px; margin-top: 12px; background: var(--brand-soft); border-radius: 6px; }
+.receipt-review .receipt-review-warning { margin: 0 0 14px; padding: 10px 12px; }
+@media(max-width:640px) {
+ .receipt-review-grid { grid-template-columns: minmax(0,1fr); gap: 16px; }
+ .receipt-review-approval { border-left: 0; border-top: 1px solid var(--line); padding: 16px 0 0; }
+ .receipt-review-amounts { gap: 8px; padding: 10px; }
+ .receipt-review-amounts strong { font-size: 15px; }
+}
+@media print { .receipt-review-approval { display: none!important; } }
