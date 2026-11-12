@@ -62,7 +62,7 @@ class HeadOfficeSalesOverviewTest extends TestCase
         $service = app(ReceiptService::class);
         $service->apply($admin, $receipt, $order->id, ['token' => (string) Str::uuid(), 'amount' => '30.00']);
         $service->apply($admin, $otherReceipt, $second->id, ['token' => (string) Str::uuid(), 'amount' => '20.00']);
-        $this->receive($admin, $client, $method, '30.00')->update(['created_at' => now()->subMonthNoOverflow()]);
+        $this->receive($admin, $client, $method, '30.00')->update(['created_at' => now()->subMonthNoOverflow(), 'payment_date' => now()->subMonthNoOverflow()]);
         $this->receive($dealer, $client, $method, '15.00');
         $service->reject($head, $this->receive($dealer, $client, $method, '25.00'), 'Comprobante incorrecto');
         $service->void($admin, $this->receive($admin, $client, $method, '40.00'), 'Ingreso duplicado de prueba');
@@ -90,7 +90,7 @@ class HeadOfficeSalesOverviewTest extends TestCase
             ->assertViewHas('clientCount', 1)->assertViewHas('soldMonthCents', 10000)->assertViewHas('receivedMonthCents', 8000)
             ->assertViewHas('debtCents', 7000)->assertViewHas('creditCents', 8000)->assertViewHas('appliedMonthCents', 3000)
             ->assertViewHas('topDebtors', fn ($rows) => $rows->pluck('client.id')->all() === [$data['client']->id])
-            ->assertSee(route('head-office.orders.index', ['concessionaire_id' => $data['north']->id]), false)
+            ->assertSee(route('head-office.orders.index', ['from' => today()->startOfMonth()->toDateString(), 'to' => today()->toDateString(), 'date_mode' => 'month', 'concessionaire_id' => $data['north']->id]))
             ->assertSee(route('head-office.orders.show', $data['order']), false)->assertDontSee('Cliente Sur');
         $this->get(route('head-office.sales.overview', ['concessionaire_id' => $data['south']->id]))->assertOk()
             ->assertViewHas('soldMonthCents', 30000)->assertViewHas('receivedMonthCents', 2000)->assertViewHas('debtCents', 28000)->assertViewHas('creditCents', 0)->assertViewHas('overdueCents', 0);

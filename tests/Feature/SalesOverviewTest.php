@@ -69,7 +69,7 @@ class SalesOverviewTest extends TestCase
         $oldSale = $this->sale($owner, $borrower, '1000.00', '200.00', 4, '2026-10-01');
         $oldSale->update(['created_at' => '2026-09-30 23:59:59']);
         $oldCash = $this->receive($owner, $borrower, '400.00');
-        $oldCash->update(['created_at' => '2026-09-30 23:59:59']);
+        $oldCash->update(['created_at' => '2026-09-30 23:59:59', 'payment_date' => '2026-09-30 23:59:59']);
         $this->apply($owner, $oldCash, $oldSale, '100.00');
         $currentCash = $this->receive($owner, $borrower, '300.00');
         $this->apply($owner, $currentCash, $oldSale, '250.00');
@@ -85,7 +85,7 @@ class SalesOverviewTest extends TestCase
         $voidedCash = $this->receive($owner, $borrower, '900.00');
         $this->apply($owner, $voidedCash, $oldSale, '100.00');
         app(ReceiptService::class)->void($this->user('admin'), $voidedCash, 'Pago incorrecto');
-        $this->receive($owner, $borrower, '700.00')->update(['created_at' => '2026-10-29 12:00:01']);
+        $this->receive($owner, $borrower, '700.00')->update(['created_at' => '2026-10-29 12:00:01', 'payment_date' => '2026-10-29 12:00:01']);
         $this->sale($owner, $borrower, '800.00')->update(['created_at' => '2026-10-30 00:00:00']);
 
         $response = $this->actingAs($owner)->get(route('workspace.sales'))->assertOk();
@@ -166,11 +166,11 @@ class SalesOverviewTest extends TestCase
     {
         $this->get(route('workspace.sales'))->assertRedirect(route('login'));
         $owner = $this->user();
-        $this->actingAs($owner)->get(route('workspace.sales'))->assertOk()->assertViewHas('receivedMonthCents', 0)->assertViewHas('debtCents', 0)->assertViewHas('creditCents', 0)->assertViewHas('overduePercent', 0)->assertSee('Todavía no hay pagos confirmados este mes.')->assertSee('No hay cuotas vencidas ni vencimientos en los próximos 7 días.');
+        $this->actingAs($owner)->get(route('workspace.sales'))->assertOk()->assertViewHas('receivedMonthCents', 0)->assertViewHas('debtCents', 0)->assertViewHas('creditCents', 0)->assertViewHas('overduePercent', 0)->assertSee('Todavía no hay pagos confirmados en el período.')->assertSee('No hay compromisos vencidos ni vencimientos en los próximos 7 días.');
 
         $client = $this->client($owner);
         $this->sale($owner, $client)->update(['created_at' => '2026-12-31 23:59:59']);
-        $this->receive($owner, $client, '20.00')->update(['created_at' => '2026-12-31 23:59:59']);
+        $this->receive($owner, $client, '20.00')->update(['created_at' => '2026-12-31 23:59:59', 'payment_date' => '2026-12-31 23:59:59']);
         $this->travelTo(now()->setDate(2027, 1, 1)->startOfDay());
 
         $this->get(route('workspace.sales'))->assertOk()->assertViewHas('salesMonth', 0)->assertViewHas('receivedMonthCents', 0)->assertViewHas('debtCents', 10000)->assertViewHas('creditCents', 2000)->assertViewHas('weeks', fn ($weeks) => $weeks->count() === 1 && $weeks->first()['sold_cents'] === 0)->assertSee('01/01/2027');
@@ -212,11 +212,11 @@ class SalesOverviewTest extends TestCase
         $owner = $this->user('dealership_admin');
         $client = $this->client($owner);
         $this->sale($owner, $client, '100.00')->update(['created_at' => '2026-09-01 00:00:00']);
-        $this->receive($owner, $client, '80.00')->update(['created_at' => '2026-09-29 12:00:00']);
+        $this->receive($owner, $client, '80.00')->update(['created_at' => '2026-09-29 12:00:00', 'payment_date' => '2026-09-29 12:00:00']);
         $this->sale($owner, $client, '1000.00')->update(['created_at' => '2026-09-29 12:00:01']);
-        $this->receive($owner, $client, '2000.00')->update(['created_at' => '2026-09-30 00:00:00']);
+        $this->receive($owner, $client, '2000.00')->update(['created_at' => '2026-09-30 00:00:00', 'payment_date' => '2026-09-30 00:00:00']);
         $this->sale($owner, $client, '150.00')->update(['created_at' => '2026-10-01 00:00:00']);
-        $this->receive($owner, $client, '120.00')->update(['created_at' => '2026-10-01 00:00:00']);
+        $this->receive($owner, $client, '120.00')->update(['created_at' => '2026-10-01 00:00:00', 'payment_date' => '2026-10-01 00:00:00']);
         $this->sale($owner, $client, '999.00')->update(['cancelled' => true]);
         app(ReceiptService::class)->void($this->user('admin'), $this->receive($owner, $client, '900.00'), 'Ingreso incorrecto');
 

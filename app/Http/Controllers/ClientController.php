@@ -94,7 +94,7 @@ class ClientController extends Controller
 
     public function index(Request $r, CustomerOverviewService $overview): View
     {
-        $r->validate(['q' => 'nullable|string|max:255', 'customer_kind' => 'nullable|in:person,dealership', 'business_type' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1', 'account_state' => 'nullable|in:debt,overdue,credit,due_soon,received,sales']);
+        $r->validate(['q' => 'nullable|string|max:255', 'customer_kind' => 'nullable|in:person,dealership', 'business_type' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1', 'account_state' => 'nullable|in:debt,overdue,credit,due_soon,received,sales', 'unassigned' => 'nullable|boolean']);
         $customerKind = $r->input('customer_kind', $r->route('customer_kind'));
         if ($r->user()->isHeadOffice()) {
             $customerKind = 'dealership';
@@ -102,6 +102,9 @@ class ClientController extends Controller
             $customerKind = 'person';
         }
         $q = Client::visibleTo($r->user())->with(['owner', 'concessionaire']);
+        if ($r->user()->isAdmin() && $r->boolean('unassigned')) {
+            $q->where('customer_kind', 'person')->whereNull('concessionaire_id');
+        }
         if ($customerKind) {
             $q->where('customer_kind', $customerKind);
         }

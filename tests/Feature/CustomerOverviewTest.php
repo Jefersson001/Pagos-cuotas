@@ -65,7 +65,7 @@ class CustomerOverviewTest extends TestCase
         $sale = $this->sale($owner, $late, '100.00', '20.00', 4, '2026-10-01');
         $sale->update(['created_at' => '2026-10-05 12:00:00']);
         $previousCash = $this->receive($owner, $late, '100.00');
-        $previousCash->update(['created_at' => '2026-09-30 23:59:59']);
+        $previousCash->update(['created_at' => '2026-09-30 23:59:59', 'payment_date' => '2026-09-30 23:59:59']);
         $cash = $this->receive($owner, $late, '70.00');
         app(ReceiptService::class)->apply($owner, $cash, $sale->id, ['token' => (string) Str::uuid(), 'amount' => '30.00']);
         $this->receive($owner, $creditOnly, '1000.00');

@@ -7,9 +7,11 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Receipt;
 use App\Support\Money;
+use App\Support\OverviewPeriod;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class SalesOverviewService
 {
@@ -19,16 +21,28 @@ class SalesOverviewService
         return DB::transaction(function () use ($request): array {
             $now = now();
             $today = $now->copy()->startOfDay();
-            $monthStart = $now->copy()->startOfMonth();
+            $period = OverviewPeriod::fromRequest($request);
+            $monthStart = $period->from;
             $weekEnd = $today->copy()->addDays(6);
             $previousStart = $monthStart->copy()->subMonthNoOverflow();
             $previousEnd = $previousStart->copy()->day(min($now->day, $previousStart->daysInMonth))->setTime($now->hour, $now->minute, $now->second);
-            $inMonth = fn (CarbonInterface $date): bool => $date->betweenIncluded($monthStart, $now);
+            if ($period->custom) {
+                $days = (int) $monthStart->diffInDays($period->to->copy()->startOfDay()) + 1;
+                $previousEnd = $monthStart->copy()->subDay()->setTime($period->to->hour, $period->to->minute, $period->to->second, $period->to->microsecond);
+                $previousStart = $monthStart->copy()->subDays($days);
+            }
+            $inMonth = fn (CarbonInterface $date): bool => $period->contains($date);
+            $canFilterConcessionaires = $request->user()->isAdmin() || $request->user()->isHeadOffice();
+            $concessionaires = $canFilterConcessionaires ? Client::visibleTo($request->user())->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name', 'dealership_id']) : collect();
+            if ($canFilterConcessionaires) {
+                $request->validate(['concessionaire_id' => ['nullable', 'integer', Rule::in($concessionaires->modelKeys())]]);
+            }
             $clientQuery = $request->user()->isHeadOffice()
                 ? Client::headOfficeCustomers($request->user())->with('concessionaire')
                 : Client::visibleTo($request->user());
-            if ($request->user()->isHeadOffice() && $request->filled('concessionaire_id')) {
-                $clientQuery->where('concessionaire_id', $request->integer('concessionaire_id'));
+            if ($canFilterConcessionaires && $request->filled('concessionaire_id')) {
+                $selectedDealer = $concessionaires->firstWhere('id', $request->integer('concessionaire_id'));
+                $clientQuery->where('customer_kind', 'person')->where('concessionaire_id', $selectedDealer->id)->where('dealership_id', $selectedDealer->dealership_id);
             }
             $clients = $clientQuery->get();
             $orderQuery = $request->user()->isHeadOffice() ? Order::headOfficePortfolio($request->user()) : Order::visibleTo($request->user());
@@ -40,7 +54,7 @@ class SalesOverviewService
             $pendingOrders = $validOrders->filter(fn (Order $order): bool => $order->balance_cents > 0);
             $validReceipts = $receipts->whereNull('voided_at')->where('approval_status', 'approved');
             $monthOrders = $validOrders->filter(fn (Order $order): bool => $inMonth($order->created_at));
-            $monthReceipts = $validReceipts->filter(fn (Receipt $receipt): bool => $inMonth($receipt->created_at));
+            $monthReceipts = $validReceipts->filter(fn (Receipt $receipt): bool => $inMonth($receipt->payment_date ?? $receipt->created_at));
             $monthApplications = $validOrders->flatMap->payments->whereNull('voided_at')->filter(fn (Payment $payment): bool => $inMonth($payment->created_at));
             $pending = $pendingOrders->flatMap(fn (Order $order) => $order->installments->filter(fn ($installment): bool => $installment->remaining_cents > 0)
                 ->map(fn ($installment): array => ['order' => $order, 'installment' => $installment]));
@@ -80,15 +94,15 @@ class SalesOverviewService
                     'days_overdue' => $oldest ? (int) $oldest['installment']->due_date->diffInDays($today) : 0,
                 ];
             });
-            $weeks = collect(range(0, intdiv($now->day - 1, 7)))->map(function (int $index) use ($now, $monthStart, $monthOrders, $monthReceipts): array {
-                $from = $monthStart->copy()->addDays($index * 7);
-                $to = $from->copy()->addDays(6)->endOfDay()->min($now);
+            $weeks = $period->buckets()->map(function (array $bucket) use ($monthOrders, $monthReceipts): array {
+                $from = $bucket['from'];
+                $to = $bucket['to'];
                 $inWeek = fn (CarbonInterface $date): bool => $date->betweenIncluded($from, $to);
 
                 return [
-                    'label' => $from->isSameDay($to) ? $from->format('d/m') : $from->format('d').'–'.$to->format('d/m'),
+                    'label' => $bucket['label'],
                     'sold_cents' => (int) $monthOrders->filter(fn (Order $order): bool => $inWeek($order->created_at))->sum(fn (Order $order): int => Money::cents($order->total)),
-                    'received_cents' => (int) $monthReceipts->filter(fn (Receipt $receipt): bool => $inWeek($receipt->created_at))->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount)),
+                    'received_cents' => (int) $monthReceipts->filter(fn (Receipt $receipt): bool => $inWeek($receipt->payment_date ?? $receipt->created_at))->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount)),
                 ];
             });
             $methods = $monthReceipts->groupBy('payment_method_id')->map(fn ($money): array => [
@@ -98,7 +112,7 @@ class SalesOverviewService
             $receiptMap = $validReceipts->keyBy('id');
             $inPrevious = fn (CarbonInterface $date): bool => $date->betweenIncluded($previousStart, $previousEnd);
             $previousSold = (int) $validOrders->filter(fn (Order $order): bool => $inPrevious($order->created_at))->sum(fn (Order $order): int => Money::cents($order->total));
-            $previousReceived = (int) $validReceipts->filter(fn (Receipt $receipt): bool => $inPrevious($receipt->created_at))->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount));
+            $previousReceived = (int) $validReceipts->filter(fn (Receipt $receipt): bool => $inPrevious($receipt->payment_date ?? $receipt->created_at))->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount));
             $comparison = collect([
                 'sales' => ['label' => 'Ventas confirmadas', 'current_cents' => (int) $monthOrders->sum(fn (Order $order): int => Money::cents($order->total)), 'previous_cents' => $previousSold],
                 'receipts' => ['label' => 'Dinero recibido', 'current_cents' => (int) $monthReceipts->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount)), 'previous_cents' => $previousReceived],
@@ -116,12 +130,20 @@ class SalesOverviewService
             return [
                 'clientCount' => $clients->count(),
                 'aging' => $aging, 'previousStart' => $previousStart, 'previousEnd' => $previousEnd, 'comparison' => $comparison,
+                'periodEnd' => $period->to, 'isCustomPeriod' => $period->custom,
+                'canFilterConcessionaires' => $canFilterConcessionaires, 'concessionaires' => $concessionaires,
+                'pendingApprovalCents' => (int) $receipts->whereNull('voided_at')->where('approval_status', 'pending')->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount)),
+                'approvedPeriodCount' => $validReceipts->filter(fn (Receipt $receipt): bool => $period->contains($receipt->approved_at))->count(),
                 'topDebtors' => $accounts->where('debt_cents', '>', 0)->sort(fn (array $left, array $right): int => ($right['overdue_cents'] <=> $left['overdue_cents']) ?: ($right['debt_cents'] <=> $left['debt_cents']) ?: ($right['days_overdue'] <=> $left['days_overdue']) ?: strcasecmp($left['client']->name, $right['client']->name))->take(5)->values(),
                 'updatedAt' => $now, 'monthStart' => $monthStart, 'weekEnd' => $weekEnd,
                 'salesMonth' => $monthOrders->count(), 'soldMonthCents' => (int) $monthOrders->sum(fn (Order $order): int => Money::cents($order->total)),
                 'receiptsMonth' => $monthReceipts->count(), 'receivedMonthCents' => (int) $monthReceipts->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount)),
                 'appliedMonthCents' => (int) $monthApplications->sum(fn (Payment $payment): int => Money::cents($payment->amount)),
-                'oldCreditAppliedCents' => (int) $monthApplications->filter(fn (Payment $payment): bool => $receiptMap->get($payment->receipt_id)?->created_at->lt($monthStart) ?? false)->sum(fn (Payment $payment): int => Money::cents($payment->amount)),
+                'oldCreditAppliedCents' => (int) $monthApplications->filter(function (Payment $payment) use ($receiptMap, $monthStart): bool {
+                    $receipt = $receiptMap->get($payment->receipt_id);
+
+                    return $receipt && ($receipt->payment_date ?? $receipt->created_at)->lt($monthStart);
+                })->sum(fn (Payment $payment): int => Money::cents($payment->amount)),
                 'debtCents' => $debt, 'debtClients' => $debtByClient->count(), 'openOrders' => $pendingOrders->count(),
                 'overdueCents' => $overdueAmount, 'overdueCount' => $overdue->count(),
                 'overduePercent' => $debt > 0 ? min(100, (int) round($overdueAmount / $debt * 100)) : 0,
@@ -133,7 +155,7 @@ class SalesOverviewService
                 'receiptStates' => $validReceipts->countBy(fn (Receipt $receipt): string => $receipt->status),
                 'orderStates' => $orders->countBy(fn (Order $order): string => $order->status),
                 'dueItems' => $pending->filter(fn (array $row): bool => $row['installment']->due_date->lte($weekEnd))->sortBy(fn (array $row): string => $row['installment']->due_date->toDateString())->take(6)->values(),
-                'recentReceipts' => $monthReceipts->sort(fn (Receipt $left, Receipt $right): int => ($right->created_at <=> $left->created_at) ?: ($right->id <=> $left->id))->take(5)->values(),
+                'recentReceipts' => $monthReceipts->sort(fn (Receipt $left, Receipt $right): int => (($right->payment_date ?? $right->created_at) <=> ($left->payment_date ?? $left->created_at)) ?: ($right->id <=> $left->id))->take(5)->values(),
                 'weeks' => $weeks, 'maxWeekCents' => max(1, $weeks->max('sold_cents') ?? 0, $weeks->max('received_cents') ?? 0),
                 'methods' => $methods, 'maxMethodCents' => max(1, $methods->max('amount_cents') ?? 0),
             ];

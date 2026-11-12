@@ -89,7 +89,7 @@ class ProductOverviewTest extends TestCase
         $this->assertSame(22500, $data['averagePriceCents']);
         $this->assertSame(15000, $data['minPriceCents']);
         $this->assertSame(30000, $data['maxPriceCents']);
-        $this->assertSame(16000, $data['averageInitialCents']);
+        $this->assertSame(2000, $data['averageInitialCents']);
         $this->assertSame(1, $data['financedCount']);
         $this->assertSame(5, $data['mostUsedPlan']);
         $this->assertSame(1, $data['withoutImage']);
@@ -101,7 +101,7 @@ class ProductOverviewTest extends TestCase
         $this->assertSame(30003, $data['ranking']->first()['sold_month_cents']);
         $this->assertSame([40002, 0, 0, 0, 10001], $data['weeks']->pluck('amount')->all());
         $this->assertSame(['general' => 2, 'vehicle' => 1, 'service' => 1], $data['types']->map(fn ($group) => $group['total'])->all());
-        $response->assertSee('Resumen de productos')->assertSee('Sin movimiento este mes')->assertSee($service->name)->assertDontSee($service->name, false);
+        $response->assertSee('Resumen de productos')->assertSee('Sin movimiento en el período')->assertSee($service->name)->assertDontSee($service->name, false);
     }
 
     public function test_catalog_is_shared_by_company_but_sales_obey_advisor_and_manager_permissions(): void
@@ -131,7 +131,7 @@ class ProductOverviewTest extends TestCase
     {
         $this->get(route('workspace.products'))->assertRedirect(route('login'));
         $owner = $this->user();
-        $this->actingAs($owner)->get(route('workspace.products'))->assertOk()->assertViewHas('total', 0)->assertViewHas('averagePriceCents', 0)->assertViewHas('mostUsedPlan', null)->assertSee('Todavía no hay ventas de productos este mes.');
+        $this->actingAs($owner)->get(route('workspace.products'))->assertOk()->assertViewHas('total', 0)->assertViewHas('averagePriceCents', 0)->assertViewHas('mostUsedPlan', null)->assertSee('Todavía no hay ventas de productos en el período.');
 
         $product = Product::factory()->create(['user_id' => $owner->id, 'price' => '100.00']);
         $this->sale($owner, [['product_id' => $product->id, 'quantity' => 1]])->update(['created_at' => '2026-12-31 23:59:59']);

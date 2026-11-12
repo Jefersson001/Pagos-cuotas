@@ -65,7 +65,7 @@ class ReceiptApprovalTest extends TestCase
             ->assertViewHas('clients', fn ($clients) => $clients->isEmpty());
         $this->get(route('clients.index', ['account_state' => 'unknown']))->assertSessionHasErrors('account_state');
         $this->get(route('workspace.customers'))->assertOk()
-            ->assertSee(route('clients.index', ['customer_kind' => 'person', 'account_state' => 'overdue']));
+            ->assertSee(route('clients.index', ['from' => today()->startOfMonth()->toDateString(), 'to' => today()->toDateString(), 'date_mode' => 'month', 'customer_kind' => 'person', 'account_state' => 'overdue']));
         $this->actingAs($data['customer'])->get(route('clients.index', ['account_state' => 'credit']))->assertForbidden();
         $this->actingAs($data['head'])->get(route('clients.index', ['account_state' => 'credit']))->assertOk()
             ->assertViewHas('clients', fn ($clients) => $clients->modelKeys() === [$data['dealer']->id]);

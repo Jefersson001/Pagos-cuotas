@@ -34,13 +34,17 @@ class ReceiptController extends Controller
             $r->merge(['from' => $oldest ? substr($oldest, 0, 10) : today()->toDateString(), 'to' => today()->toDateString(), 'date_mode' => 'custom']);
         }
         MonthlyDateFilter::apply($r);
-        $r->validate(['q' => 'nullable|string|max:120', 'state' => 'nullable|in:all,pending,rejected,credit,partial,applied,void', 'client_id' => 'nullable|integer', 'concessionaire_id' => 'nullable|integer']);
+        $r->validate(['q' => 'nullable|string|max:120', 'state' => 'nullable|in:all,approved,pending,rejected,credit,partial,applied,void', 'client_id' => 'nullable|integer', 'concessionaire_id' => 'nullable|integer', 'date_field' => 'nullable|in:registration,payment']);
         $query = Receipt::visibleTo($r->user())->with(['client.concessionaire', 'method', 'applications', 'dealership', 'recorder']);
         if ($r->filled('concessionaire_id')) {
             $query->whereHas('client', fn ($clients) => $clients->where('concessionaire_id', $r->integer('concessionaire_id')));
         }
         $concessionaires = $r->user()->isHeadOffice() ? Client::where('dealership_id', $r->user()->dealership_id)->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name']) : collect();
-        $query->whereDate('created_at', '>=', $r->input('from'))->whereDate('created_at', '<=', $r->input('to'));
+        if ($r->input('date_field') === 'payment') {
+            $query->whereRaw('DATE(COALESCE(payment_date, created_at)) BETWEEN ? AND ?', [$r->input('from'), $r->input('to')]);
+        } else {
+            $query->whereDate('created_at', '>=', $r->input('from'))->whereDate('created_at', '<=', $r->input('to'));
+        }
         if ($r->filled('client_id')) {
             $query->where('client_id', $r->input('client_id'));
         }
@@ -64,6 +68,8 @@ class ReceiptController extends Controller
             $query->whereNotNull('voided_at');
         } elseif (in_array($state, ['pending', 'rejected'], true)) {
             $query->whereNull('voided_at')->where('approval_status', $state);
+        } elseif ($state === 'approved') {
+            $query->whereNull('voided_at')->where('approval_status', 'approved');
         } elseif (in_array($state, ['credit', 'partial', 'applied'], true)) {
             $appliedSql = 'ROUND(COALESCE((SELECT SUM(payments.amount) FROM payments WHERE payments.receipt_id = receipts.id AND payments.voided_at IS NULL), 0), 2)';
             $query->whereNull('voided_at')->where('approval_status', 'approved');

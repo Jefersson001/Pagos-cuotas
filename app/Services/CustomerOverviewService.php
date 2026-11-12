@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\Order;
 use App\Models\Receipt;
 use App\Support\Money;
+use App\Support\OverviewPeriod;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -17,9 +18,10 @@ class CustomerOverviewService
         return DB::transaction(function () use ($request) {
             $now = now();
             $today = $now->copy()->startOfDay();
-            $monthStart = $now->copy()->startOfMonth();
+            $period = OverviewPeriod::fromRequest($request);
+            $monthStart = $period->from;
             $weekEnd = $today->copy()->addDays(6);
-            $inMonth = fn ($date) => $date && $date->gte($monthStart) && $date->lte($now);
+            $inMonth = fn ($date): bool => $period->contains($date);
             $actor = $request->user();
             $canFilterConcessionaires = $actor->isAdmin() || $actor->isHeadOffice();
             $concessionaires = $canFilterConcessionaires
@@ -33,6 +35,7 @@ class CustomerOverviewService
             $clients = $actor->isHeadOffice()
                 ? Client::headOfficeCustomers($actor)->get()->merge($concessionaires)
                 : Client::visibleTo($actor)->get();
+            $unassignedCount = $actor->isAdmin() ? $clients->where('customer_kind', 'person')->whereNull('concessionaire_id')->count() : 0;
             if ($selectedConcessionaire) {
                 $clients = $clients->filter(fn (Client $client): bool => $client->id === $selectedConcessionaire->id
                     || ($client->customer_kind === 'person' && $client->concessionaire_id === $selectedConcessionaire->id && $client->dealership_id === $selectedConcessionaire->dealership_id));
@@ -65,7 +68,7 @@ class CustomerOverviewService
                     'overdue_cents' => $overdue,
                     'due_soon_cents' => $pending->filter(fn ($installment) => $installment->due_date->betweenIncluded($today, $weekEnd))->sum('remaining_cents'),
                     'applicable_cents' => min($debt, $credit),
-                    'received_month_cents' => $money->filter(fn ($receipt) => $inMonth($receipt->created_at))->sum(fn ($receipt) => Money::cents($receipt->amount)),
+                    'received_month_cents' => $money->filter(fn ($receipt) => $inMonth($receipt->payment_date ?? $receipt->created_at))->sum(fn ($receipt) => Money::cents($receipt->amount)),
                     'sold_month_cents' => $monthSales->sum(fn ($order) => Money::cents($order->total)),
                     'sales_month' => $monthSales->count(),
                     'open_orders' => $pendingSales->count(),
@@ -83,7 +86,7 @@ class CustomerOverviewService
                         return $account;
                     }
                     $members = $people->filter(fn (array $person): bool => $person['client']->concessionaire_id === $dealer->id
-                        && $person['client']->dealership_id === $dealer->dealership_id)->push($account);
+                        && $person['client']->dealership_id === $dealer->dealership_id);
                     foreach (['debt_cents', 'credit_cents', 'overdue_cents', 'due_soon_cents', 'applicable_cents', 'received_month_cents', 'sold_month_cents', 'sales_month', 'open_orders', 'unapplied_receipts'] as $metric) {
                         $account[$metric] = $members->sum($metric);
                     }
@@ -113,7 +116,7 @@ class CustomerOverviewService
                     'create_route' => $actor->isHeadOffice() && $kind === 'person' ? null : 'clients.create',
                     'show_route' => $actor->isHeadOffice() && $kind === 'person' ? 'head-office.clients.show' : 'clients.show',
                     'aggregate' => $canFilterConcessionaires && $kind === 'dealership',
-                    'route_parameters' => array_filter(['customer_kind' => $kind, 'concessionaire_id' => $selectedConcessionaire?->id, 'dealership_id' => $actor->isAdmin() ? DealershipContext::id($actor) : null], fn ($value): bool => $value !== null),
+                    'route_parameters' => array_merge($request->only('from', 'to', 'date_mode'), array_filter(['customer_kind' => $kind, 'concessionaire_id' => $selectedConcessionaire?->id, 'dealership_id' => $actor->isAdmin() ? DealershipContext::id($actor) : null], fn ($value): bool => $value !== null)),
                     'total' => $rows->count(),
                     'active' => $rows->filter(fn ($account) => $account['client']->active)->count(),
                     'new_this_month' => $rows->where('new_this_month', true)->count(),
@@ -146,7 +149,7 @@ class CustomerOverviewService
 
             return ['groups' => $groups, 'updatedAt' => $now, 'monthStart' => $monthStart, 'weekEnd' => $weekEnd,
                 'concessionaires' => $concessionaires, 'canFilterConcessionaires' => $canFilterConcessionaires,
-                'selectedConcessionaire' => $selectedConcessionaire];
+                'selectedConcessionaire' => $selectedConcessionaire, 'periodEnd' => $period->to, 'unassignedCount' => $unassignedCount];
         });
     }
 }
