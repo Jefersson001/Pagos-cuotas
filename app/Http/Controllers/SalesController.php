@@ -121,7 +121,7 @@ class SalesController extends Controller
 
     public function store(Request $r, SalesService $service)
     {
-        $v = $r->validate(['token' => 'required|uuid', 'client_id' => 'required|integer', 'items' => 'required|array|min:1|max:100', 'items.*.product_id' => 'required|integer|distinct', 'items.*.catalog_version' => 'nullable|string|size:64', 'items.*.quantity' => 'required|integer|min:1|max:100000', 'items.*.use_custom_amounts' => 'sometimes|boolean', 'items.*.unit_price' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'items.*.initial_amount' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'installment_count' => 'required|integer|min:1|max:120', 'frequency' => 'required|in:weekly,fortnightly,monthly,custom', 'first_due' => 'required|date_format:Y-m-d', 'custom' => 'nullable|array|max:120', 'custom.*.amount' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/', 'custom.*.due_date' => 'required|date_format:Y-m-d', 'notes' => 'nullable|string|max:3000']);
+        $v = $r->validate(['token' => 'required|uuid', 'client_id' => 'required|integer', 'items' => 'required|array|min:1|max:100', 'items.*.product_id' => 'required|integer|distinct', 'items.*.catalog_version' => 'nullable|string|size:64', 'items.*.quantity' => 'required|integer|min:1|max:100000', 'items.*.use_custom_amounts' => 'sometimes|boolean', 'items.*.unit_price' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'items.*.initial_amount' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'installment_count' => 'required|integer|min:1|max:120', 'frequency' => 'required|in:weekly,fortnightly,monthly,first_half,second_half,custom', 'first_due' => 'required|date_format:Y-m-d', 'custom' => 'nullable|array|max:120', 'custom.*.amount' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/', 'custom.*.due_date' => 'required|date_format:Y-m-d', 'notes' => 'nullable|string|max:3000']);
         $order = $service->create($r->user(), $v);
 
         return redirect()->route('orders.show', $order)->with('success', 'Venta creada y cronograma registrado.');
@@ -173,12 +173,12 @@ class SalesController extends Controller
     public function pay(Request $r, Order $order, SalesService $service, ReceiptService $receipts)
     {
         Gate::authorize('update', $order);
-        $v = $r->validate(['token' => 'required|uuid', 'amount' => 'required|string', 'payment_source' => 'nullable|in:new,credit', 'new_payment' => 'nullable|boolean', 'allow_credit' => 'nullable|boolean', 'payment_method_id' => 'required_unless:payment_source,credit|nullable|integer', 'installment_id' => 'nullable|integer', 'reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
+        $v = $r->validate(['token' => 'required|uuid', 'amount' => 'required|string', 'payment_source' => 'nullable|in:new,credit', 'new_payment' => 'nullable|boolean', 'allow_credit' => 'nullable|boolean', 'payment_method_id' => 'required_unless:payment_source,credit|nullable|integer', 'installment_id' => 'nullable|integer', 'collection_channel' => 'nullable|in:head_office,concessionaire', 'reference' => 'exclude_if:payment_source,credit|required|string|max:255', 'notes' => 'nullable|string|max:3000']);
         $v += $r->validate(['payment_date' => 'required_unless:payment_source,credit|nullable|date_format:Y-m-d|before_or_equal:today']);
-        $v += $r->validate(['proof' => 'exclude_if:payment_source,credit|nullable|file|mimes:jpg,jpeg,png,pdf|max:5120']);
+        $v += $r->validate(['proof' => 'exclude_if:payment_source,credit|required|file|mimes:jpg,jpeg,png,pdf|max:5120'], ['proof.required' => 'Adjunta el comprobante del cliente para registrar el pago.']);
         $receipts->withClientProof($v['proof'] ?? null, fn (?string $path): Payment|Receipt => $service->pay($r->user(), $order->id, array_merge($v, ['proof_path' => $path])));
 
-        return back()->with('success', ($v['payment_source'] ?? 'new') === 'credit' ? 'Saldo a favor aplicado a la venta. No se registró dinero nuevo.' : ($r->user()->isAdmin() ? 'Pago registrado correctamente.' : 'Pago registrado y relacionado con esta venta, pendiente de aprobación por casa matriz.'));
+        return back()->with('success', ($v['payment_source'] ?? 'new') === 'credit' ? 'Saldo a favor aplicado a la venta. No se registró dinero nuevo.' : (($v['collection_channel'] ?? 'head_office') === 'concessionaire' ? 'Cobro registrado. Queda pendiente de incluirse en una remesa a casa matriz.' : ($r->user()->isAdmin() ? 'Pago registrado correctamente.' : 'Pago registrado y relacionado con esta venta, pendiente de aprobación por casa matriz.')));
     }
 
     public function void(Request $r, Payment $payment, SalesService $service)

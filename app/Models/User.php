@@ -105,7 +105,7 @@ class User extends Authenticatable
             return [
                 'head-office' => ['name' => 'Contactos', 'icon' => 'users-round', 'description' => 'Registra tus concesionarios, consulta sus fichas y revisa sus resultados.', 'category' => 'Relaciones comerciales', 'route' => 'head-office.overview', 'patterns' => ['head-office.overview', 'head-office.clients*', 'clients.*'], 'children' => [['name' => 'Resumen', 'route' => 'head-office.overview'], ['name' => 'Concesionarios', 'route' => 'clients.index'], ['name' => 'Clientes', 'route' => 'head-office.clients']]],
                 'products' => $modules['products'],
-                'payments' => ['name' => 'Ventas', 'icon' => 'shopping-bag', 'description' => 'Consulta las ventas de los clientes de tus concesionarios y revisa sus pagos.', 'category' => 'Gestión comercial', 'route' => 'head-office.sales.overview', 'patterns' => ['head-office.sales.*', 'head-office.orders.*', 'head-office.receipts.*', 'receipts.*', 'payment-methods.*'], 'children' => [['name' => 'Resumen', 'route' => 'head-office.sales.overview'], ['name' => 'Ventas', 'route' => 'head-office.orders.index'], ['name' => 'Pagos', 'route' => 'receipts.index', 'patterns' => ['receipts.*', 'head-office.receipts.*', 'payment-methods.*'], 'children' => [['name' => 'Pagos', 'route' => 'receipts.index'], ['name' => 'Métodos de pago', 'route' => 'payment-methods.index', 'payment_methods' => true]]]]],
+                'payments' => ['name' => 'Ventas', 'icon' => 'shopping-bag', 'description' => 'Consulta las ventas de los clientes de tus concesionarios y revisa sus pagos.', 'category' => 'Gestión comercial', 'route' => 'head-office.sales.overview', 'patterns' => ['head-office.sales.*', 'head-office.orders.*', 'head-office.receipts.*', 'receipts.*', 'remittances.*', 'payment-methods.*'], 'children' => [['name' => 'Resumen', 'route' => 'head-office.sales.overview'], ['name' => 'Ventas', 'route' => 'head-office.orders.index'], ['name' => 'Pagos', 'route' => 'receipts.index', 'patterns' => ['receipts.*', 'remittances.*', 'head-office.receipts.*', 'payment-methods.*'], 'children' => [['name' => 'Pagos', 'route' => 'receipts.index'], ['name' => 'Remesas', 'route' => 'remittances.index'], ['name' => 'Métodos de pago', 'route' => 'payment-methods.index', 'payment_methods' => true]]]]],
                 'reports' => $modules['reports'],
                 'settings' => $modules['settings'],
             ];
@@ -117,6 +117,14 @@ class User extends Authenticatable
             foreach ($modules as &$module) {
                 if (isset($module['children'])) {
                     $module['children'] = array_values(array_filter($module['children'], fn (array $child): bool => empty($child['system'])));
+                    if (! $this->can('viewAny', Remittance::class)) {
+                        foreach ($module['children'] as &$child) {
+                            if (isset($child['children'])) {
+                                $child['children'] = array_values(array_filter($child['children'], fn (array $link): bool => $link['route'] !== 'remittances.index'));
+                            }
+                        }
+                        unset($child);
+                    }
                 }
             }
         }

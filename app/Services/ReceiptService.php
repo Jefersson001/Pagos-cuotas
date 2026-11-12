@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Receipt;
+use App\Models\Remittance;
 use App\Models\User;
 use App\Support\Money;
 use Closure;
@@ -63,7 +64,7 @@ class ReceiptService
                     || (int) $old->source_order_id !== (int) ($data['source_order_id'] ?? 0)
                     || (int) $old->intended_installment_id !== (int) ($data['installment_id'] ?? 0)
                     || (int) $old->payment_method_id !== (int) $data['payment_method_id']
-                    || $old->payment_date?->toDateString() !== $data['payment_date']) {
+                    || $old->payment_date?->toDateString() !== $data['payment_date'] || $old->collection_channel !== ($data['collection_channel'] ?? 'head_office')) {
                     $this->fail('El comprobante ya fue utilizado con otros datos.');
                 }
 
@@ -83,6 +84,11 @@ class ReceiptService
                 if ($order->client_id !== $client->id || $order->dealership_id !== $client->dealership_id || $order->cancelled) {
                     $this->fail('La venta debe estar activa y pertenecer al cliente del pago.');
                 }
+                if (! empty($data['reference']) && Receipt::where('source_order_id', $order->id)->where('client_id', $client->id)
+                    ->where('payment_method_id', $method->id)->where('reference', trim($data['reference']))->where('amount', Money::decimal($amount))
+                    ->whereDate('payment_date', $data['payment_date'])->whereNull('voided_at')->whereIn('approval_status', ['pending', 'approved'])->exists()) {
+                    $this->fail('Este pago ya fue registrado para la venta con la misma referencia, fecha, método e importe. Revisa el comprobante existente.');
+                }
                 $limit = $order->balance_cents;
                 if (! empty($data['installment_id'])) {
                     $target = $order->installments->firstWhere('id', (int) $data['installment_id']);
@@ -90,6 +96,13 @@ class ReceiptService
                         $this->fail('El compromiso no pertenece a la venta.');
                     }
                     $limit = $target->remaining_cents;
+                }
+                $reported = $order->reportedSummary();
+                if ($reported['covered_cents'] > 0) {
+                    $limit = min($limit, $order->unreportedBalanceCents(! empty($data['installment_id']) ? (int) $data['installment_id'] : null));
+                    if ($limit <= 0 || $amount > $limit) {
+                        $this->fail('Ya existen cobros pendientes para esta venta o cuota. El nuevo pago no puede superar el importe que falta por reportar: $'.Money::decimal($limit).'.');
+                    }
                 }
                 $intendedAmount = Money::decimal(min($amount, $limit));
             } elseif (! empty($data['installment_id'])) {
@@ -99,7 +112,17 @@ class ReceiptService
             if (! empty($data['proof_path'])) {
                 $receipt->update(['proof_path' => $data['proof_path']]);
             }
-            $pending = ! $actor->isAdmin();
+            $channel = $data['collection_channel'] ?? 'head_office';
+            Validator::make(['collection_channel' => $channel], ['collection_channel' => 'required|in:head_office,concessionaire'])->validate();
+            $collector = null;
+            if ($channel === 'concessionaire') {
+                $collector = Client::whereKey($client->concessionaire_id)->where('customer_kind', 'dealership')->where('dealership_id', $client->dealership_id)->first();
+                if (! $collector) {
+                    $this->fail('El cliente debe tener un concesionario asignado para registrar un cobro recibido por el concesionario.');
+                }
+            }
+            $receipt->update(['collection_channel' => $channel, 'collecting_concessionaire_id' => $collector?->id]);
+            $pending = ! $actor->isAdmin() || $channel === 'concessionaire';
             $receipt->update(['payment_date' => $data['payment_date'], 'approval_status' => $pending ? 'pending' : 'approved', 'approved_at' => $pending ? null : now(), 'approved_by' => $pending ? null : $actor->id, 'intended_installment_id' => $data['installment_id'] ?? null, 'intended_amount' => $intendedAmount]);
             Audit::log($actor->id, 'receive', 'receipt', $receipt->id, ['amount' => $receipt->amount]);
 
@@ -132,50 +155,7 @@ class ReceiptService
         $path = $approvalProof?->store('receipt-proofs', 'local');
         $approved = null;
         try {
-            $approved = DB::transaction(function () use ($actor, $receipt, $expectedAppliedCents, $path): Receipt {
-                Client::lockForUpdate()->findOrFail($receipt->client_id);
-                $receipt = Receipt::lockForUpdate()->findOrFail($receipt->id);
-                Gate::forUser($actor)->authorize('review', $receipt);
-                DealershipContext::forContactWrite($actor, null, $receipt->dealership_id);
-                if ($receipt->approval_status === 'approved' && ! $receipt->voided_at) {
-                    return $receipt;
-                }
-                if ($receipt->approval_status !== 'pending' || $receipt->voided_at) {
-                    $this->fail('Solo se puede aprobar un pago pendiente y sin anular.');
-                }
-                if (! $path) {
-                    throw ValidationException::withMessages(['approval_proof' => 'Adjunta el comprobante de ingreso en la cuenta de casa matriz para aprobar el pago.']);
-                }
-                if ($receipt->source_order_id) {
-                    $receipt->setRelation('sourceOrder', Order::lockForUpdate()->findOrFail($receipt->source_order_id));
-                }
-                $preview = $this->approvalPreview($receipt);
-                if ($expectedAppliedCents !== null && $preview['applied_cents'] !== $expectedAppliedCents) {
-                    $this->fail('La deuda cambió desde que abriste el pago. Actualiza la ficha y revisa los importes antes de aprobar.');
-                }
-                $receipt->update(['approval_status' => 'approved', 'approved_at' => now(), 'approved_by' => $actor->id, 'approval_proof_path' => $path]);
-                if ($receipt->source_order_id) {
-                    $order = Order::lockForUpdate()->findOrFail($receipt->source_order_id);
-                    if ($order->cancelled || $order->client_id !== $receipt->client_id || $order->dealership_id !== $receipt->dealership_id) {
-                        $this->fail('La venta relacionada fue cancelada o cambió. Rechaza el pago y solicita un nuevo registro.');
-                    }
-                    $limit = $order->balance_cents;
-                    if ($receipt->intended_installment_id) {
-                        $target = $order->installments->firstWhere('id', $receipt->intended_installment_id);
-                        if (! $target) {
-                            $this->fail('El compromiso relacionado ya no pertenece a la venta.');
-                        }
-                        $limit = $target->remaining_cents;
-                    }
-                    $amount = min($limit, Money::cents($receipt->intended_amount ?? $receipt->amount));
-                    if ($amount > 0) {
-                        $this->apply($actor, $receipt, $order->id, ['token' => $receipt->token, 'amount' => Money::decimal($amount), 'installment_id' => $receipt->intended_installment_id]);
-                    }
-                }
-                Audit::log($actor->id, 'approve_receipt', 'receipt', $receipt->id, ['amount' => $receipt->amount, 'source_order_id' => $receipt->source_order_id]);
-
-                return $receipt->fresh();
-            }, 3);
+            $approved = $this->confirmApproval($actor, $receipt, $expectedAppliedCents, $path);
 
             return $approved;
         } finally {
@@ -185,6 +165,66 @@ class ReceiptService
         }
     }
 
+    public function approveInRemittance(User $actor, Receipt $receipt, Remittance $remittance, ?int $expectedAppliedCents): Receipt
+    {
+        Gate::forUser($actor)->authorize('review', $remittance);
+        $locked = Remittance::lockForUpdate()->findOrFail($remittance->id);
+        abort_unless($locked->status === 'pending' && $locked->approval_proof_path && $receipt->collection_channel === 'concessionaire' && (int) $receipt->remittance_id === $locked->id && $receipt->dealership_id === $locked->dealership_id && (int) $receipt->collecting_concessionaire_id === $locked->concessionaire_id, 422);
+
+        return $this->confirmApproval($actor, $receipt, $expectedAppliedCents, $locked->approval_proof_path, $locked->id);
+    }
+
+    private function confirmApproval(User $actor, Receipt $receipt, ?int $expectedAppliedCents, ?string $path, ?int $remittanceId = null): Receipt
+    {
+        return DB::transaction(function () use ($actor, $receipt, $expectedAppliedCents, $path, $remittanceId): Receipt {
+            Client::lockForUpdate()->findOrFail($receipt->client_id);
+            $receipt = Receipt::lockForUpdate()->findOrFail($receipt->id);
+            Gate::forUser($actor)->authorize('review', $receipt);
+            DealershipContext::forContactWrite($actor, null, $receipt->dealership_id);
+            if ($receipt->collection_channel === 'concessionaire' && (! $remittanceId || (int) $receipt->remittance_id !== $remittanceId)) {
+                $this->fail('Este cobro debe aprobarse mediante su remesa.');
+            }
+            if ($receipt->approval_status === 'approved' && ! $receipt->voided_at) {
+                return $receipt;
+            }
+            if ($receipt->approval_status !== 'pending' || $receipt->voided_at) {
+                $this->fail('Solo se puede aprobar un pago pendiente y sin anular.');
+            }
+            if (! $path) {
+                throw ValidationException::withMessages(['approval_proof' => 'Adjunta el comprobante de ingreso en la cuenta de casa matriz para aprobar el pago.']);
+            }
+            if ($receipt->source_order_id) {
+                $receipt->setRelation('sourceOrder', Order::lockForUpdate()->findOrFail($receipt->source_order_id));
+            }
+            $preview = $this->approvalPreview($receipt);
+            if ($expectedAppliedCents !== null && $preview['applied_cents'] !== $expectedAppliedCents) {
+                $this->fail('La deuda cambió desde que abriste el pago. Actualiza la ficha y revisa los importes antes de aprobar.');
+            }
+            $receipt->update(['approval_status' => 'approved', 'approved_at' => now(), 'approved_by' => $actor->id, 'approval_proof_path' => $path]);
+            if ($receipt->source_order_id) {
+                $order = Order::lockForUpdate()->findOrFail($receipt->source_order_id);
+                if ($order->cancelled || $order->client_id !== $receipt->client_id || $order->dealership_id !== $receipt->dealership_id) {
+                    $this->fail('La venta relacionada fue cancelada o cambió. Rechaza el pago y solicita un nuevo registro.');
+                }
+                $limit = $order->balance_cents;
+                if ($receipt->intended_installment_id) {
+                    $target = $order->installments->firstWhere('id', $receipt->intended_installment_id);
+                    if (! $target) {
+                        $this->fail('El compromiso relacionado ya no pertenece a la venta.');
+                    }
+                    $limit = $target->remaining_cents;
+                }
+                $amount = min($limit, Money::cents($receipt->intended_amount ?? $receipt->amount));
+                if ($amount > 0) {
+                    $this->apply($actor, $receipt, $order->id, ['token' => $receipt->token, 'amount' => Money::decimal($amount), 'installment_id' => $receipt->intended_installment_id]);
+                }
+            }
+            Audit::log($actor->id, 'approve_receipt', 'receipt', $receipt->id, ['amount' => $receipt->amount, 'source_order_id' => $receipt->source_order_id]);
+
+            return $receipt->fresh();
+        }, 3);
+    }
+
     public function reject(User $actor, Receipt $receipt, string $reason): void
     {
         DB::transaction(function () use ($actor, $receipt, $reason): void {
@@ -192,6 +232,9 @@ class ReceiptService
             $receipt = Receipt::lockForUpdate()->findOrFail($receipt->id);
             Gate::forUser($actor)->authorize('review', $receipt);
             DealershipContext::forContactWrite($actor, null, $receipt->dealership_id);
+            if ($receipt->collection_channel === 'concessionaire') {
+                $this->fail('Rechaza la remesa para devolver los cobros al concesionario sin perder su registro.');
+            }
             if ($receipt->approval_status !== 'pending' || $receipt->voided_at) {
                 $this->fail('Solo se puede rechazar un pago pendiente y sin anular.');
             }
@@ -264,14 +307,17 @@ class ReceiptService
         }, 3);
     }
 
-    public function void(User $actor, Receipt $receipt, string $reason): void
+    public function void(User $actor, Receipt $receipt, string $reason, ?int $remittanceId = null): void
     {
         abort_unless($actor->canAccessRecord($receipt) && ($actor->isAdmin() || $actor->isHeadOffice() || ($actor->canManageBusiness() && $receipt->approval_status === 'pending')), 403);
-        DB::transaction(function () use ($actor, $receipt, $reason) {
+        DB::transaction(function () use ($actor, $receipt, $reason, $remittanceId) {
             Client::lockForUpdate()->findOrFail($receipt->client_id);
             $receipt = Receipt::lockForUpdate()->findOrFail($receipt->id);
             abort_unless($actor->canAccessRecord($receipt) && ($actor->isAdmin() || $actor->isHeadOffice() || ($actor->canManageBusiness() && $receipt->approval_status === 'pending')), 403);
             DealershipContext::forContactWrite($actor, null, $receipt->dealership_id);
+            if ($receipt->remittance_id && (int) $receipt->remittance_id !== $remittanceId) {
+                $this->fail('Este cobro pertenece a una remesa. Su anulación debe gestionarse desde la remesa.');
+            }
             if ($receipt->voided_at) {
                 return;
             }

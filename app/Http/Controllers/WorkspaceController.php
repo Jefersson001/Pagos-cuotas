@@ -22,7 +22,7 @@ class WorkspaceController extends Controller
         }
 
         $pendingPayments = $request->user()->isHeadOffice()
-            ? Receipt::visibleTo($request->user())->where('approval_status', 'pending')->whereNull('voided_at')->count()
+            ? Receipt::visibleTo($request->user())->where('approval_status', 'pending')->whereNull('voided_at')->where(fn ($query) => $query->where('collection_channel', 'head_office')->orWhereNotNull('remittance_id'))->count()
             : 0;
 
         return view('workspace.home', ['modules' => $request->user()->workspaceModules(), 'pendingPayments' => $pendingPayments]);

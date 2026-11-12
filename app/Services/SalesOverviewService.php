@@ -51,6 +51,7 @@ class SalesOverviewService
             $receipts = Receipt::visibleTo($request->user())->whereIn('client_id', $clients->modelKeys())->where('created_at', '<=', $now)
                 ->with(['client', 'method', 'applications'])->get();
             $validOrders = $orders->where('cancelled', false);
+            $reportedAccounts = $validOrders->map(fn (Order $order): array => $order->reportedSummary($receipts));
             $pendingOrders = $validOrders->filter(fn (Order $order): bool => $order->balance_cents > 0);
             $validReceipts = $receipts->whereNull('voided_at')->where('approval_status', 'approved');
             $monthOrders = $validOrders->filter(fn (Order $order): bool => $inMonth($order->created_at));
@@ -129,6 +130,7 @@ class SalesOverviewService
 
             return [
                 'clientCount' => $clients->count(),
+                'collectionRemainingCents' => (int) $reportedAccounts->sum('remaining_cents'),
                 'aging' => $aging, 'previousStart' => $previousStart, 'previousEnd' => $previousEnd, 'comparison' => $comparison,
                 'periodEnd' => $period->to, 'isCustomPeriod' => $period->custom,
                 'canFilterConcessionaires' => $canFilterConcessionaires, 'concessionaires' => $concessionaires,

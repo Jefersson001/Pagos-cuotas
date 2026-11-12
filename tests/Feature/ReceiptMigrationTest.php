@@ -20,7 +20,7 @@ class ReceiptMigrationTest extends TestCase
         $this->assertSame('sqlite', config('database.default'));
         RefreshDatabaseState::$migrated = false;
         try {
-            $paths = collect(glob(database_path('migrations/*.php')))->reject(fn ($p) => str_contains($p, 'create_receipts_ledger') || str_contains($p, 'add_approval_to_receipts') || str_contains($p, 'add_proof_path_to_receipts') || str_contains($p, 'add_payment_date_and_approval_proof_to_receipts'))->map(fn ($p) => 'database/migrations/'.basename($p))->all();
+            $paths = collect(glob(database_path('migrations/*.php')))->reject(fn ($p) => str_contains($p, 'create_receipts_ledger') || str_contains($p, 'add_approval_to_receipts') || str_contains($p, 'add_proof_path_to_receipts') || str_contains($p, 'add_payment_date_and_approval_proof_to_receipts') || str_contains($p, 'create_remittances_table'))->map(fn ($p) => 'database/migrations/'.basename($p))->all();
             $this->artisan('migrate:fresh', ['--path' => $paths, '--seed' => true, '--force' => true])->assertExitCode(0);
             $user = User::factory()->create(['role_id' => Role::where('name', 'user')->value('id')]);
             $client = Client::create(['user_id' => $user->id, 'name' => 'Cliente anterior', 'document' => 'LEGACY', 'phone' => '0412']);

@@ -6,10 +6,13 @@
 $money=fn($cents)=>'$'.number_format($cents/100,2);
 $valid=$orders->where('cancelled',false);
 $pending=$valid->filter(fn($order)=>$order->balance_cents>0)->flatMap->installments->filter(fn($installment)=>$installment->remaining_cents>0);
+$reportedAccounts=$valid->map(fn($sale)=>$sale->reportedSummary($receipts));
+$reportedCash=$receipts->where('approval_status','pending')->whereNull('voided_at')->sum(fn($receipt)=>\App\Support\Money::cents($receipt->amount));
 @endphp
 <div class="customer-overview-period"><span>{{ $client->name }} · {{ $client->concessionaire?->name ?? $client->dealership->name }}</span><small>{{ now()->format('d/m/Y H:i') }}</small></div>
 <div class="account-priority-kpis">
-<section class="card account-balance"><span>Saldo pendiente</span><strong>{{ $money($valid->sum('balance_cents')) }}</strong><small>Deuda actual de tus compras</small></section>
+<section class="card account-balance"><span>Saldo según pagos aprobados</span><strong>{{ $money($valid->sum('balance_cents')) }}</strong><small>Deuda actual de tus compras</small></section>
+<section class="card"><span>Cobros reportados pendientes</span><strong>{{ $money($reportedCash) }}</strong><small>Pendientes de envío o aprobación</small></section><section class="card"><span>Restante por cobrar considerando reportes</span><strong>{{ $money($reportedAccounts->sum('remaining_cents')) }}</strong><small>Compras aún no cubiertas por reportes</small></section>
 <section class="card"><span>Próximo vencimiento</span><strong>{{ $pending->sortBy('due_date')->first()?->due_date->format('d/m/Y')??'Sin pendientes' }}</strong><small>@if($pending->isNotEmpty()){{ $money($pending->sortBy('due_date')->first()->remaining_cents) }} pendientes de este compromiso @if($pending->sortBy('due_date')->first()->due_date->lt(today()))<span class="account-overdue">Vencido</span>@endif @else Tus compromisos están al día @endif</small></section>
 <section class="card"><span>Saldo a favor</span><strong>{{ $money($receipts->sum('available_cents')) }}</strong><small>Dinero aprobado disponible</small></section>
 </div>

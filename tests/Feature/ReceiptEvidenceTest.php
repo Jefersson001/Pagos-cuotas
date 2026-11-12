@@ -114,6 +114,29 @@ class ReceiptEvidenceTest extends TestCase
         }
     }
 
+    public function test_new_sale_payment_requires_a_valid_client_proof_for_every_collection_channel(): void
+    {
+        $data = $this->portfolio();
+        $order = app(SalesService::class)->create($data['dealer'], ['token' => (string) Str::uuid(), 'client_id' => $data['client']->id, 'description' => 'Venta con comprobante obligatorio', 'items' => [['description' => 'Producto', 'quantity' => 1, 'unit_price' => '120.00']], 'initial_amount' => '0', 'installment_count' => 2, 'frequency' => 'monthly', 'first_due' => today()->addMonth()->toDateString()]);
+        $admin = User::factory()->create(['role_id' => Role::where('name', 'admin')->value('id')]);
+        foreach ([$data['dealer'], $admin] as $actor) {
+            foreach (['head_office', 'concessionaire'] as $channel) {
+                $values = $data['values'] + ['payment_source' => 'new', 'collection_channel' => $channel];
+                foreach ([null, '', '   '] as $reference) {
+                    $this->actingAs($actor)->post(route('orders.pay', $order), array_replace($values, ['reference' => $reference, 'proof' => $this->approvalProof()]))->assertSessionHasErrors('reference');
+                }
+                $this->actingAs($actor)->post(route('orders.pay', $order), $values)->assertSessionHasErrors('proof');
+                foreach ([UploadedFile::fake()->create('archivo.php', 1, 'application/x-httpd-php'), UploadedFile::fake()->create('grande.pdf', 5121, 'application/pdf')] as $file) {
+                    $this->post(route('orders.pay', $order), $values + ['proof' => $file])->assertSessionHasErrors('proof');
+                }
+            }
+        }
+        $this->assertDatabaseCount('receipts', 0);
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertSame(12000, $order->fresh()->balance_cents);
+        $this->assertSame([], Storage::disk('local')->allFiles('receipt-proofs'));
+    }
+
     public function test_sale_registration_saves_client_photo_for_dealer_and_administrator(): void
     {
         $data = $this->portfolio();
@@ -195,12 +218,12 @@ class ReceiptEvidenceTest extends TestCase
         $data = $this->portfolio();
         $order = app(SalesService::class)->create($data['dealer'], ['token' => (string) Str::uuid(), 'client_id' => $data['client']->id, 'description' => 'Venta de prueba', 'items' => [['description' => 'Producto', 'quantity' => 1, 'unit_price' => '120.00']], 'initial_amount' => '0', 'installment_count' => 2, 'frequency' => 'monthly', 'first_due' => today()->addMonth()->toDateString()]);
         $this->actingAs($data['dealer'])->post(route('orders.pay', $order), array_replace($data['values'], ['payment_date' => null]))->assertSessionHasErrors('payment_date');
-        $this->post(route('orders.pay', $order), $data['values'])->assertSessionHasNoErrors();
+        $this->post(route('orders.pay', $order), $data['values'] + ['proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $receipt = Receipt::firstOrFail();
         $this->assertSame($data['values']['payment_date'], $receipt->payment_date->toDateString());
-        $this->post(route('orders.pay', $order), array_replace($data['values'], ['payment_date' => today()->toDateString()]))->assertSessionHasErrors('amount');
+        $this->post(route('orders.pay', $order), array_replace($data['values'], ['payment_date' => today()->toDateString(), 'proof' => $this->approvalProof()]))->assertSessionHasErrors('amount');
         $this->actingAs($data['head'])->post(route('receipts.approve', $receipt), ['expected_applied_cents' => 100, 'approval_proof' => $this->approvalProof()])->assertSessionHasErrors('amount');
-        $this->assertSame([], Storage::disk('local')->allFiles('receipt-proofs'));
+        $this->assertCount(1, Storage::disk('local')->allFiles('receipt-proofs'));
         $this->assertSame('pending', $receipt->fresh()->approval_status);
         $this->assertNull($receipt->fresh()->approved_at);
         $this->assertNull($receipt->fresh()->approval_proof_path);

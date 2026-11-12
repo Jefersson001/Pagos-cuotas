@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class Order extends OwnedModel
 {
@@ -54,6 +55,59 @@ class Order extends OwnedModel
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    /** @return array{reported_cents: int, covered_cents: int, remaining_cents: int, installments: array<int,int>} */
+    public function reportedSummary(?Collection $pendingReceipts = null): array
+    {
+        $pending = $pendingReceipts ?? Receipt::where('source_order_id', $this->id)->where('client_id', $this->client_id)->where('dealership_id', $this->dealership_id)
+            ->where('approval_status', 'pending')->whereNull('voided_at')->where('created_at', '<=', now())->orderBy('id')->get();
+        $pending = $pending->filter(fn (Receipt $receipt): bool => $receipt->source_order_id === $this->id && $receipt->client_id === $this->client_id && $receipt->dealership_id === $this->dealership_id && $receipt->approval_status === 'pending' && ! $receipt->voided_at)->sortBy('id');
+        $available = $this->installments->mapWithKeys(fn (InstallmentSchedule $item): array => [$item->id => max(0, $item->remaining_cents)])->all();
+        $covered = array_fill_keys(array_keys($available), 0);
+        $balance = max(0, $this->balance_cents);
+        $legacy = max(0, $balance - array_sum($available));
+        $total = 0;
+        foreach ($pending as $receipt) {
+            $budget = min(Money::cents($receipt->amount), Money::cents($receipt->intended_amount ?? $receipt->amount), $balance - $total);
+            if ($receipt->intended_installment_id) {
+                $id = $receipt->intended_installment_id;
+                $part = min($budget, $available[$id] ?? 0);
+                $available[$id] = ($available[$id] ?? 0) - $part;
+                $covered[$id] = ($covered[$id] ?? 0) + $part;
+                $total += $part;
+
+                continue;
+            }
+            $part = min($budget, $legacy);
+            $legacy -= $part;
+            $budget -= $part;
+            $total += $part;
+            foreach ($available as $id => $remaining) {
+                $part = min($budget, $remaining);
+                $available[$id] -= $part;
+                $covered[$id] += $part;
+                $total += $part;
+                $budget -= $part;
+                if ($budget === 0) {
+                    break;
+                }
+            }
+        }
+
+        return ['reported_cents' => (int) $pending->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount)), 'covered_cents' => $this->cancelled ? 0 : $total,
+            'remaining_cents' => $this->cancelled ? 0 : max(0, $balance - $total), 'installments' => $this->cancelled ? [] : $covered];
+    }
+
+    public function unreportedBalanceCents(?int $installmentId = null, ?Collection $pendingReceipts = null): int
+    {
+        $reported = $this->reportedSummary($pendingReceipts);
+        if ($installmentId === null) {
+            return $reported['remaining_cents'];
+        }
+        $installment = $this->installments->firstWhere('id', $installmentId);
+
+        return min($reported['remaining_cents'], max(0, ($installment?->remaining_cents ?? 0) - ($reported['installments'][$installmentId] ?? 0)));
     }
 
     public function getPaidCentsAttribute(): int

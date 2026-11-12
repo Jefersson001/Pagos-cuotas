@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -90,16 +91,16 @@ class ReceiptApprovalTest extends TestCase
     {
         $data = $this->portfolio();
         $values = $this->payment($data);
-        $this->actingAs($data['owner'])->post(route('orders.pay', $data['order']), $values)->assertSessionHasNoErrors();
+        $this->actingAs($data['owner'])->post(route('orders.pay', $data['order']), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], $values))->assertSessionHasNoErrors();
         $receipt = Receipt::firstOrFail();
         $this->assertSame('pending', $receipt->approval_status);
         $this->assertSame($data['order']->id, $receipt->source_order_id);
         $this->assertSame(0, $data['client']->fresh()->credit_cents);
         $this->assertSame(40000, $data['order']->fresh()->balance_cents);
         $this->assertDatabaseCount('payments', 0);
-        $this->post(route('orders.pay', $data['order']), $values)->assertSessionHasNoErrors();
+        $this->post(route('orders.pay', $data['order']), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], $values))->assertSessionHasNoErrors();
         $this->assertDatabaseCount('receipts', 1);
-        $this->post(route('orders.pay', $data['order']), array_replace($values, ['amount' => '151.00']))->assertSessionHasErrors('amount');
+        $this->post(route('orders.pay', $data['order']), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], array_replace($values, ['amount' => '151.00'])))->assertSessionHasErrors('amount');
         $this->get(route('orders.show', $data['order']))->assertOk()->assertSee('Pagos pendientes de aprobación');
         $this->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertForbidden();
         $this->post(route('receipts.apply', $receipt), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'order_id' => $data['order']->id, 'amount' => '10.00'])->assertSessionHasErrors('amount');
@@ -125,7 +126,7 @@ class ReceiptApprovalTest extends TestCase
         $this->actingAs($data['head'])->post(route('receipts.approve', $receipt), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $this->assertSame(15000, $data['client']->fresh()->credit_cents);
         $this->assertDatabaseCount('payments', 0);
-        $this->actingAs($data['owner'])->post(route('orders.pay', $data['order']), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'payment_source' => 'credit', 'amount' => '125.00'])->assertSessionHasNoErrors();
+        $this->actingAs($data['owner'])->post(route('orders.pay', $data['order']), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'payment_source' => 'credit', 'amount' => '125.00']))->assertSessionHasNoErrors();
         $this->assertSame(2500, $data['client']->fresh()->credit_cents);
         $this->assertSame(27500, $data['order']->fresh()->balance_cents);
         $this->assertDatabaseCount('receipts', 1);
@@ -168,7 +169,7 @@ class ReceiptApprovalTest extends TestCase
         $this->get(route('receipts.create'))->assertForbidden();
         $this->get(route('clients.show', $data['client']))->assertForbidden();
         $this->get(route('orders.show', $data['order']))->assertForbidden();
-        $this->post(route('orders.pay', $data['order']), $this->payment($data))->assertForbidden();
+        $this->post(route('orders.pay', $data['order']), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], $this->payment($data)))->assertForbidden();
     }
 
     public function test_targeted_installment_and_surplus_are_preserved_during_approval(): void
@@ -186,10 +187,10 @@ class ReceiptApprovalTest extends TestCase
     public function test_changed_debt_becomes_credit_and_cancelled_sale_cannot_be_approved(): void
     {
         $data = $this->portfolio();
-        $this->actingAs($data['owner'])->post(route('orders.pay', $data['order']), $this->payment($data, '400.00'))->assertSessionHasNoErrors();
+        $this->actingAs($data['owner'])->post(route('orders.pay', $data['order']), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], $this->payment($data, '400.00')))->assertSessionHasNoErrors();
         $first = Receipt::firstOrFail();
-        $this->post(route('orders.pay', $data['order']), $this->payment($data, '400.00'))->assertSessionHasNoErrors();
-        $second = Receipt::latest('id')->firstOrFail();
+        $second = $first->replicate(['token']);
+        $second->forceFill(['token' => (string) Str::uuid()])->save();
         $this->actingAs($data['head'])->post(route('receipts.approve', $first), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $this->post(route('receipts.approve', $second), ['approval_proof' => $this->approvalProof()])->assertSessionHasNoErrors();
         $this->assertSame(0, $data['order']->fresh()->balance_cents);
@@ -197,7 +198,7 @@ class ReceiptApprovalTest extends TestCase
         $this->assertDatabaseCount('payments', 1);
 
         $other = $this->portfolio();
-        $this->actingAs($other['owner'])->post(route('orders.pay', $other['order']), $this->payment($other))->assertSessionHasNoErrors();
+        $this->actingAs($other['owner'])->post(route('orders.pay', $other['order']), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], $this->payment($other)))->assertSessionHasNoErrors();
         $cancelled = Receipt::latest('id')->firstOrFail();
         $other['order']->update(['cancelled' => true]);
         $this->actingAs($other['head'])->post(route('receipts.approve', $cancelled), ['approval_proof' => $this->approvalProof()])->assertSessionHasErrors('amount');

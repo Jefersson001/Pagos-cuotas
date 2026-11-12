@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\ReportService;
 use App\Services\SalesService;
 use App\Support\Money;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -98,6 +99,39 @@ class SalesTest extends TestCase
         $o = $this->sale($u, ['initial_amount' => '0', 'installment_count' => 3, 'first_due' => '2026-01-31']);
         $this->assertSame(['166.67', '166.67', '166.66'], $o->installments->pluck('amount')->all());
         $this->assertSame(['2026-01-31', '2026-02-28', '2026-03-31'], $o->installments->map(fn ($i) => $i->due_date->toDateString())->all());
+    }
+
+    public function test_monthly_half_month_options_use_calendar_deadlines_and_preserve_exact_amounts(): void
+    {
+        $user = $this->actor();
+        foreach ([
+            ['first_half', '2026-01-01', ['2026-01-15', '2026-02-15', '2026-03-15']],
+            ['first_half', '2026-01-15', ['2026-01-15', '2026-02-15', '2026-03-15']],
+            ['first_half', '2026-12-16', ['2027-01-15', '2027-02-15', '2027-03-15']],
+            ['second_half', '2026-01-01', ['2026-01-31', '2026-02-28', '2026-03-31']],
+            ['second_half', '2028-02-29', ['2028-02-29', '2028-03-31', '2028-04-30']],
+            ['second_half', '2026-12-31', ['2026-12-31', '2027-01-31', '2027-02-28']],
+        ] as [$frequency, $firstDue, $expectedDates]) {
+            $order = $this->sale($user, ['initial_amount' => '0', 'installment_count' => 3, 'frequency' => $frequency, 'first_due' => $firstDue]);
+            $this->assertSame($frequency, $order->frequency);
+            $this->assertSame($expectedDates, $order->installments->map(fn ($item) => $item->due_date->toDateString())->all());
+            $this->assertSame(['166.67', '166.67', '166.66'], $order->installments->pluck('amount')->all());
+        }
+    }
+
+    public function test_half_month_installments_become_overdue_only_after_the_deadline(): void
+    {
+        try {
+            foreach ([['first_half', '2026-11-15 23:00:00', '2026-11-16 00:00:00'], ['second_half', '2026-11-30 23:00:00', '2026-12-01 00:00:00']] as [$frequency, $onDeadline, $afterDeadline]) {
+                $this->travelTo(Carbon::parse($onDeadline));
+                $order = $this->sale($this->actor(), ['initial_amount' => '0', 'installment_count' => 1, 'frequency' => $frequency, 'first_due' => '2026-11-01']);
+                $this->assertNotSame('Atrasado', $order->fresh()->status);
+                $this->travelTo(Carbon::parse($afterDeadline));
+                $this->assertSame('Atrasado', $order->fresh()->status);
+            }
+        } finally {
+            $this->travelBack();
+        }
     }
 
     public function test_overdue_is_derived_and_overpayment_rejected(): void

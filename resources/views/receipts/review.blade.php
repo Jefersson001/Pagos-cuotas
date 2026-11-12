@@ -68,6 +68,11 @@
                     <p class="muted">Este pago fue aprobado sin comprobante de casa matriz antes de este control o registrado directamente por el administrador.</p>
                 @endif
             </section>
+        @elseif($receipt->collection_channel==='concessionaire')
+            <section class="receipt-review-approval"><h3>Envío a casa matriz</h3><p class="muted">Este cobro fue recibido por el concesionario. Se confirma mediante la aprobación de su remesa.</p>
+            @if($receipt->remittance_id)<a class="btn secondary" href="{{ route('remittances.show',$receipt->remittance_id) }}">Ver remesa REM-{{ $receipt->remittance_id }}</a>
+            @else<p>Pendiente de incluir en una remesa.</p>@can('create',\App\Models\Remittance::class)<a class="btn secondary" href="{{ route('remittances.create',['concessionaire_id'=>$receipt->collecting_concessionaire_id]) }}">Preparar remesa</a>@endcan @endif
+            </section>
         @elseif(!$readOnlyPortfolio)
             @can('review',$receipt)
                 <section class="receipt-review-approval" x-data="{rejecting:@js($errors->has('reason'))}">

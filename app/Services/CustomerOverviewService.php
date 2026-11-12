@@ -44,11 +44,14 @@ class CustomerOverviewService
             $orderQuery = $actor->isHeadOffice() ? Order::headOfficePortfolio($actor) : Order::visibleTo($actor);
             $orders = $orderQuery->whereIn('client_id', $ids)->where('created_at', '<=', $now)->with(['payments', 'installments.allocations.payment'])->get()->groupBy('client_id');
             $receipts = Receipt::visibleTo($actor)->whereIn('client_id', $ids)->where('created_at', '<=', $now)->where('approval_status', 'approved')->whereNull('voided_at')->with('applications')->get()->groupBy('client_id');
-            $accounts = $clients->map(function ($client) use ($orders, $receipts, $today, $weekEnd, $inMonth) {
+            $reportedMoney = Receipt::visibleTo($actor)->whereIn('client_id', $ids)->where('created_at', '<=', $now)->where('approval_status', 'pending')->whereNull('voided_at')->get()->groupBy('client_id');
+            $accounts = $clients->map(function ($client) use ($orders, $receipts, $reportedMoney, $today, $weekEnd, $inMonth) {
                 $sales = $orders->get($client->id, collect())->where('cancelled', false);
                 $pendingSales = $sales->filter(fn ($order) => $order->balance_cents > 0);
                 $pending = $pendingSales->flatMap->installments->filter(fn ($installment) => $installment->remaining_cents > 0);
                 $money = $receipts->get($client->id, collect());
+                $reports = $reportedMoney->get($client->id, collect());
+                $reportedAccounts = $sales->map(fn ($sale) => $sale->reportedSummary($reports));
                 $monthSales = $sales->filter(fn ($order) => $inMonth($order->created_at));
                 $debt = $pendingSales->sum('balance_cents');
                 $credit = $money->sum('available_cents');
@@ -63,6 +66,8 @@ class CustomerOverviewService
 
                 return [
                     'client' => $client,
+                    'reported_cents' => $reports->sum(fn (Receipt $receipt): int => Money::cents($receipt->amount)),
+                    'collection_remaining_cents' => $reportedAccounts->sum('remaining_cents'),
                     'debt_cents' => $debt,
                     'credit_cents' => $credit,
                     'overdue_cents' => $overdue,
@@ -87,7 +92,7 @@ class CustomerOverviewService
                     }
                     $members = $people->filter(fn (array $person): bool => $person['client']->concessionaire_id === $dealer->id
                         && $person['client']->dealership_id === $dealer->dealership_id);
-                    foreach (['debt_cents', 'credit_cents', 'overdue_cents', 'due_soon_cents', 'applicable_cents', 'received_month_cents', 'sold_month_cents', 'sales_month', 'open_orders', 'unapplied_receipts'] as $metric) {
+                    foreach (['reported_cents', 'collection_remaining_cents', 'debt_cents', 'credit_cents', 'overdue_cents', 'due_soon_cents', 'applicable_cents', 'received_month_cents', 'sold_month_cents', 'sales_month', 'open_orders', 'unapplied_receipts'] as $metric) {
                         $account[$metric] = $members->sum($metric);
                     }
                     $account['next_due'] = $members->pluck('next_due')->filter()->sort()->first();
@@ -124,6 +129,8 @@ class CustomerOverviewService
                     'with_credit' => $rows->where('credit_cents', '>', 0)->count(),
                     'with_overdue' => $rows->where('overdue_cents', '>', 0)->count(),
                     'debt_cents' => $debt,
+                    'reported_cents' => $rows->sum('reported_cents'),
+                    'collection_remaining_cents' => $rows->sum('collection_remaining_cents'),
                     'credit_cents' => $rows->sum('credit_cents'),
                     'overdue_cents' => $overdue,
                     'due_soon_cents' => $rows->sum('due_soon_cents'),

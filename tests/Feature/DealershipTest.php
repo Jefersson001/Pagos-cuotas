@@ -12,6 +12,7 @@ use App\Services\Audit;
 use App\Services\ReportService;
 use App\Services\SalesService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
@@ -78,7 +79,7 @@ class DealershipTest extends TestCase
         $this->get(route('orders.show', $foreign))->assertForbidden();
         $this->get(route('clients.show', $foreign->client))->assertForbidden();
         $this->get(route('clients.edit', $foreign->client))->assertForbidden();
-        $this->post(route('orders.pay', $foreign), [])->assertForbidden();
+        $this->post(route('orders.pay', $foreign), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], []))->assertForbidden();
         $this->post(route('payments.void', $foreign->payments->first()), ['reason' => 'Prueba de acceso ajeno'])->assertForbidden();
         $this->get(route('payment-methods.edit', $method))->assertForbidden();
         $this->put(route('payment-methods.update', $method), ['name' => 'Cambio', 'active' => 0])->assertForbidden();
@@ -198,7 +199,7 @@ class DealershipTest extends TestCase
         $owner = $this->user('user', $a);
         $order = $this->sale($owner, 'Cliente A');
         $method = PaymentMethod::create(['dealership_id' => $b->id, 'name' => 'Ajeno']);
-        $this->actingAs($owner)->post(route('orders.pay', $order), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '50.00', 'payment_method_id' => $method->id])->assertSessionHasErrors('amount');
+        $this->actingAs($owner)->post(route('orders.pay', $order), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '50.00', 'payment_method_id' => $method->id]))->assertSessionHasErrors('amount');
         $this->assertSame(90000, $order->fresh()->balance_cents);
         $this->assertSame(1, $order->payments()->count());
     }
@@ -234,7 +235,7 @@ class DealershipTest extends TestCase
         $this->assertGuest();
         $this->flushSession();
         $this->actingAs($this->user('admin'))->get(route('orders.show', $order))->assertOk();
-        $this->post(route('orders.pay', $order), ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '50', 'payment_method_id' => $order->payments->first()->payment_method_id])->assertSessionHasErrors('dealership_id');
+        $this->post(route('orders.pay', $order), array_merge(['reference' => 'REF-PRUEBA', 'proof' => UploadedFile::fake()->create('comprobante.pdf', 1, 'application/pdf')], ['payment_date' => today()->toDateString(), 'token' => (string) Str::uuid(), 'amount' => '50', 'payment_method_id' => $order->payments->first()->payment_method_id]))->assertSessionHasErrors('dealership_id');
     }
 
     public function test_global_admin_creates_and_edits_dealership_and_keeps_existing_data(): void

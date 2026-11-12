@@ -98,7 +98,7 @@ class PaymentMethodController extends Controller
         DB::transaction(function () use ($request, $paymentMethod) {
             $method = PaymentMethod::lockForUpdate()->findOrFail($paymentMethod->id);
             $this->authorizeManagement($request, $method);
-            if ($method->payments()->exists() || $method->receipts()->exists()) {
+            if ($method->payments()->exists() || $method->receipts()->exists() || $method->remittances()->exists()) {
                 throw ValidationException::withMessages(['method' => 'Este método tiene pagos registrados y no se puede eliminar. Puedes desactivarlo desde su formulario.']);
             }
             $before = $method->getAttributes();

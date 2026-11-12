@@ -34,8 +34,8 @@ class ReceiptController extends Controller
             $r->merge(['from' => $oldest ? substr($oldest, 0, 10) : today()->toDateString(), 'to' => today()->toDateString(), 'date_mode' => 'custom']);
         }
         MonthlyDateFilter::apply($r);
-        $r->validate(['q' => 'nullable|string|max:120', 'state' => 'nullable|in:all,approved,pending,rejected,credit,partial,applied,void', 'client_id' => 'nullable|integer', 'concessionaire_id' => 'nullable|integer', 'date_field' => 'nullable|in:registration,payment']);
-        $query = Receipt::visibleTo($r->user())->with(['client.concessionaire', 'method', 'applications', 'dealership', 'recorder']);
+        $r->validate(['q' => 'nullable|string|max:120', 'state' => 'nullable|in:all,approved,pending,held,remitted,rejected,credit,partial,applied,void', 'client_id' => 'nullable|integer', 'concessionaire_id' => 'nullable|integer', 'date_field' => 'nullable|in:registration,payment']);
+        $query = Receipt::visibleTo($r->user())->with(['client.concessionaire', 'remittance', 'method', 'applications', 'dealership', 'recorder']);
         if ($r->filled('concessionaire_id')) {
             $query->whereHas('client', fn ($clients) => $clients->where('concessionaire_id', $r->integer('concessionaire_id')));
         }
@@ -68,6 +68,12 @@ class ReceiptController extends Controller
             $query->whereNotNull('voided_at');
         } elseif (in_array($state, ['pending', 'rejected'], true)) {
             $query->whereNull('voided_at')->where('approval_status', $state);
+            if ($state === 'pending' && $r->user()->isHeadOffice()) {
+                $query->where(fn (Builder $q) => $q->where('collection_channel', 'head_office')->orWhereNotNull('remittance_id'));
+            }
+        } elseif (in_array($state, ['held', 'remitted'], true)) {
+            $query->whereNull('voided_at')->where('approval_status', 'pending')->where('collection_channel', 'concessionaire');
+            $state === 'held' ? $query->whereNull('remittance_id') : $query->whereNotNull('remittance_id');
         } elseif ($state === 'approved') {
             $query->whereNull('voided_at')->where('approval_status', 'approved');
         } elseif (in_array($state, ['credit', 'partial', 'applied'], true)) {
@@ -104,7 +110,7 @@ class ReceiptController extends Controller
 
     public function store(Request $r, ReceiptService $service)
     {
-        $v = $r->validate(['payment_date' => 'required|date_format:Y-m-d|before_or_equal:today', 'token' => 'required|uuid', 'client_id' => 'required|integer', 'amount' => 'required|string', 'payment_method_id' => 'required|integer', 'order_id' => 'nullable|integer', 'installment_id' => 'nullable|integer', 'reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
+        $v = $r->validate(['payment_date' => 'required|date_format:Y-m-d|before_or_equal:today', 'token' => 'required|uuid', 'client_id' => 'required|integer', 'amount' => 'required|string', 'payment_method_id' => 'required|integer', 'order_id' => 'nullable|integer', 'installment_id' => 'nullable|integer', 'collection_channel' => 'nullable|in:head_office,concessionaire', 'reference' => 'nullable|string|max:255', 'notes' => 'nullable|string|max:3000']);
         $v += $r->validate(['proof' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120']);
         $receipt = $service->withClientProof($r->file('proof'), fn (?string $path): Receipt => DB::transaction(function () use ($r, $v, $service, $path) {
             $receipt = $service->receive($r->user(), $v['client_id'], array_merge($v, ['source_order_id' => $v['order_id'] ?? null, 'proof_path' => $path]));
@@ -121,7 +127,7 @@ class ReceiptController extends Controller
             return $receipt;
         }, 3));
 
-        return redirect()->route('receipts.show', $receipt)->with('success', $receipt->approval_status === 'pending' ? 'Pago registrado, pendiente de aprobación por casa matriz. Los saldos todavía no cambian.' : 'Pago registrado. El importe sin aplicar queda como saldo a favor del cliente.');
+        return redirect()->route('receipts.show', $receipt)->with('success', $receipt->approval_status === 'pending' && $receipt->collection_channel === 'concessionaire' ? 'Cobro registrado. Est? pendiente de incluirse en una remesa a casa matriz.' : ($receipt->approval_status === 'pending' ? 'Pago registrado, pendiente de aprobación por casa matriz. Los saldos todavía no cambian.' : 'Pago registrado. El importe sin aplicar queda como saldo a favor del cliente.'));
     }
 
     public function show(Receipt $receipt): View
@@ -156,6 +162,7 @@ class ReceiptController extends Controller
             $locked = Receipt::lockForUpdate()->findOrFail($receipt->id);
             Gate::authorize('update', $locked);
             DealershipContext::forWrite($request->user(), null, $locked->dealership_id);
+            abort_if($locked->remittance_id, 422, 'Este cobro pertenece a una remesa y conserva los datos enviados.');
             abort_if($locked->voided_at, 422, 'Un pago anulado conserva sus datos originales.');
             if (isset($values['payment_date']) && $locked->approval_status !== 'pending' && $values['payment_date'] !== $locked->payment_date?->toDateString()) {
                 throw ValidationException::withMessages(['payment_date' => 'La fecha de pago solo se puede corregir mientras esté pendiente de aprobación.']);
@@ -217,6 +224,7 @@ class ReceiptController extends Controller
                 Gate::authorize('update', $locked);
                 DealershipContext::forWrite($request->user(), null, $locked->dealership_id);
                 abort_unless($locked->approval_status === 'pending' && ! $locked->voided_at, 422);
+                abort_if($locked->remittance_id, 422, 'Este cobro pertenece a una remesa y conserva su comprobante.');
                 $oldPath = $locked->proof_path;
                 $locked->update(['proof_path' => $path]);
                 Audit::log($request->user()->id, 'attach_proof', 'receipt', $locked->id);

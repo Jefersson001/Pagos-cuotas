@@ -52,4 +52,9 @@ class PaymentMethod extends Model
     {
         return $this->hasMany(Receipt::class);
     }
+
+    public function remittances(): HasMany
+    {
+        return $this->hasMany(Remittance::class);
+    }
 }

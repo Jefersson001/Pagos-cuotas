@@ -104,6 +104,10 @@ class SalesService
                     $this->fail('El saldo es menor a un céntimo por cuota.');
                 }
                 $start = Carbon::parse($data['first_due']);
+                if ($data['frequency'] === 'first_half') {
+                    $requestedDay = $start->day;
+                    $start->startOfMonth()->addMonths($requestedDay > 15 ? 1 : 0)->day(15);
+                }
                 for ($n = 0; $n < $count; $n++) {
                     if ($data['frequency'] === 'custom') {
                         $row = $data['custom'][$n] ?? null;
@@ -115,7 +119,11 @@ class SalesService
                     } else {
                         $amount = intdiv($balance, $count) + ($n < $balance % $count ? 1 : 0);
                         $date = match ($data['frequency']) {
-                            'weekly' => $start->copy()->addWeeks($n),'fortnightly' => $start->copy()->addDays(15 * $n),default => $start->copy()->addMonthsNoOverflow($n)
+                            'weekly' => $start->copy()->addWeeks($n),
+                            'fortnightly' => $start->copy()->addDays(15 * $n),
+                            'first_half' => $start->copy()->addMonthsNoOverflow($n),
+                            'second_half' => $start->copy()->startOfMonth()->addMonths($n)->endOfMonth(),
+                            default => $start->copy()->addMonthsNoOverflow($n)
                         };
                         $date = $date->toDateString();
                     }
@@ -199,6 +207,7 @@ class SalesService
             if ($old = Receipt::where('token', $data['token'])->first()) {
                 Gate::forUser($actor)->authorize('view', $old);
                 if ($old->source_order_id !== $orderId || Money::cents($old->amount) !== Money::cents($data['amount']) || (int) $old->intended_installment_id !== (int) ($data['installment_id'] ?? 0)
+                    || $old->collection_channel !== ($data['collection_channel'] ?? 'head_office')
                     || (isset($data['payment_date']) && $old->payment_date?->toDateString() !== $data['payment_date'])) {
                     $this->fail('El comprobante ya fue utilizado con otros datos.');
                 }
@@ -222,6 +231,13 @@ class SalesService
                     $this->fail('La cuota no pertenece al pedido.');
                 }
                 $limit = min($limit, $target->remaining_cents);
+            }
+            $reported = $order->reportedSummary($receipts);
+            if ($reported['covered_cents'] > 0) {
+                $limit = min($limit, $order->unreportedBalanceCents(! empty($data['installment_id']) ? (int) $data['installment_id'] : null, $receipts));
+                if ($limit <= 0 || $amount > $limit) {
+                    $this->fail('Ya existen cobros pendientes para esta venta o cuota. El nuevo pago no puede superar el importe que falta por reportar: $'.Money::decimal($limit).'.');
+                }
             }
             if ($order->cancelled || $amount <= 0 || $limit <= 0 || ($amount > $limit && ($useCredit || empty($data['allow_credit'])))) {
                 $this->fail($useCredit ? 'El saldo aplicado debe ser mayor a cero y no superar la deuda de la venta o de la cuota seleccionada.' : 'El abono debe ser mayor a cero y no superar el saldo pendiente. Active guardar excedente para registrar saldo a favor.');

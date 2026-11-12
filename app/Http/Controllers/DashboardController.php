@@ -23,11 +23,17 @@ class DashboardController extends Controller
         $copy->query->remove('from');
         $copy->query->remove('to');
         $orders = OrderQuery::get($copy);
-        $rows = $orders->where('cancelled', false)->flatMap(fn ($o) => $o->installments->map(function ($i) use ($o) {
-            $i->setRelation('order', $o);
+        $rows = $orders->where('cancelled', false)->flatMap(function ($o) {
+            $reported = $o->reportedSummary();
 
-            return $i;
-        }))->sortBy('due_date');
+            return $o->installments->map(function ($i) use ($o, $reported) {
+                $i->setRelation('order', $o);
+                $i->setAttribute('reported_cents', $reported['installments'][$i->id] ?? 0);
+                $i->setAttribute('collection_remaining_cents', max(0, $i->remaining_cents - ($reported['installments'][$i->id] ?? 0)));
+
+                return $i;
+            });
+        })->sortBy('due_date');
         $filter = $r->input('filter', 'pending');
         $rows = $rows->filter(function ($i) use ($r, $filter) {
             if ($r->filled('from') && $i->due_date->toDateString() < $r->input('from')) {
@@ -37,6 +43,7 @@ class DashboardController extends Controller
             }
 
             return match ($filter) {
+                'reported' => $i->reported_cents > 0,
                 'completed' => $i->order->status === 'Pagado','paid' => $i->remaining_cents === 0,'today' => $i->remaining_cents > 0 && $i->due_date->isToday(),'week' => $i->remaining_cents > 0 && $i->due_date->betweenIncluded(today()->startOfWeek(), today()->endOfWeek()),'overdue' => $i->remaining_cents > 0 && $i->due_date->lt(today()),'current' => $i->remaining_cents > 0 && $i->due_date->gte(today()),default => $i->remaining_cents > 0
             };
         });
