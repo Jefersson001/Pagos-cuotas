@@ -130,9 +130,70 @@ class CustomerOverviewTest extends TestCase
         $this->get(route('workspace.customers', ['dealership_id' => $owner->dealership_id]))->assertDontSee('NEGOCIO RESERVADO')->assertViewHas('groups', fn ($groups) => $groups['dealership']['total'] === 1);
     }
 
+    public function test_admin_and_head_office_share_filtered_customer_and_dealer_portfolios(): void
+    {
+        $company = Dealership::factory()->create(['organization_type' => 'head_office']);
+        $otherCompany = Dealership::factory()->create(['organization_type' => 'head_office']);
+        $admin = $this->user('admin');
+        $head = $this->user('head_office', $company->id);
+        $north = Client::factory()->concessionaire()->create(['dealership_id' => $company->id, 'name' => 'Concesionario Norte']);
+        $south = Client::factory()->concessionaire()->create(['dealership_id' => $company->id, 'name' => 'Concesionario Sur']);
+        $empty = Client::factory()->concessionaire()->create(['dealership_id' => $company->id, 'name' => 'Sin cartera']);
+        $foreign = Client::factory()->concessionaire()->create(['dealership_id' => $otherCompany->id, 'name' => 'Concesionario ajeno']);
+        $dealer = User::factory()->create(['dealership_id' => $company->id, 'role_id' => Role::where('name', 'dealership_admin')->value('id'), 'concessionaire_id' => $north->id]);
+        $a = Client::factory()->for($dealer, 'owner')->create(['dealership_id' => $company->id, 'concessionaire_id' => $north->id, 'name' => 'Cliente Norte']);
+        $b = Client::factory()->create(['dealership_id' => $company->id, 'concessionaire_id' => $south->id, 'name' => 'Cliente Sur']);
+        $c = Client::factory()->create(['dealership_id' => $otherCompany->id, 'concessionaire_id' => $foreign->id, 'name' => 'Cliente ajeno']);
+        $sale = $this->sale($admin, $a, '100', '0', 2, '2026-10-01');
+        $this->sale($admin, $b, '200', '0', 2, '2026-11-01');
+        $this->sale($admin, $c, '300', '0', 2, '2026-11-01');
+        $receipt = $this->receive($admin, $a, '60');
+        app(ReceiptService::class)->apply($admin, $receipt, $sale->id, ['token' => (string) Str::uuid(), 'amount' => '20']);
+        $excluded = [];
+        foreach (['pending', 'rejected'] as $status) {
+            $excluded[$status] = $this->receive($admin, $a, '500');
+        }
+        $this->receive($admin, $a, '700')->update(['voided_at' => now()]);
+        foreach ($excluded as $status => $payment) {
+            $payment->update(['approval_status' => $status]);
+        }
+        $this->sale($admin, $a, '900', '0', 2, '2026-10-01')->update(['cancelled' => true]);
+
+        $response = $this->actingAs($admin)->get(route('workspace.customers'))->assertOk()->assertViewIs('workspace.customers');
+        foreach (['person', 'dealership'] as $kind) {
+            $this->assertSame(58000, $response->viewData('groups')[$kind]['debt_cents']);
+            $this->assertSame(4000, $response->viewData('groups')[$kind]['credit_cents']);
+            $this->assertSame(6000, $response->viewData('groups')[$kind]['received_month_cents']);
+        }
+        foreach ([[$admin, 'workspace.customers'], [$head, 'head-office.overview']] as [$actor, $route]) {
+            $response = $this->actingAs($actor)->get(route($route, ['concessionaire_id' => $north->id]))->assertOk()->assertViewIs('workspace.customers')->assertDontSee('Cliente Sur');
+            foreach (['person', 'dealership'] as $kind) {
+                $group = $response->viewData('groups')[$kind];
+                $this->assertSame(1, $group['total']);
+                $this->assertSame(8000, $group['debt_cents']);
+                $this->assertSame(4000, $group['credit_cents']);
+                $this->assertSame(3000, $group['overdue_cents']);
+                $this->assertSame(1, $group['sales_month']);
+                $this->assertSame(10000, $group['sold_month_cents']);
+            }
+            $this->get(route($route, ['concessionaire_id' => $empty->id]))->assertViewHas('groups', fn (array $groups): bool => $groups['person']['total'] === 0 && $groups['dealership']['total'] === 1 && $groups['dealership']['debt_cents'] === 0);
+        }
+        $response = $this->actingAs($head)->get(route('head-office.overview'))->assertOk()->assertDontSee('Cliente ajeno')->assertDontSee('Concesionario ajeno')->assertDontSee('Aplicar saldo');
+        $this->assertSame(2, $response->viewData('groups')['person']['total']);
+        $this->assertSame(3, $response->viewData('groups')['dealership']['total']);
+        $this->assertSame(28000, $response->viewData('groups')['dealership']['debt_cents']);
+        $this->assertNull($response->viewData('groups')['person']['create_route']);
+        foreach ([$foreign->id, $a->id, 999999] as $id) {
+            $this->getJson(route('head-office.overview', ['concessionaire_id' => $id]))->assertUnprocessable()->assertJsonValidationErrors('concessionaire_id');
+        }
+        $this->get(route('head-office.clients', ['concessionaire_id' => $north->id, 'account_state' => 'debt']))->assertOk()->assertViewHas('clients', fn ($clients): bool => $clients->total() === 1 && $clients->first()->id === $a->id);
+        $this->get(route('clients.index', ['concessionaire_id' => $north->id, 'account_state' => 'debt']))->assertOk()->assertViewHas('clients', fn ($clients): bool => $clients->total() === 1 && $clients->first()->id === $north->id);
+        $this->actingAs($dealer)->get(route('workspace.customers', ['concessionaire_id' => $south->id]))->assertOk()->assertDontSee('Cliente Sur')->assertViewHas('groups', fn (array $groups): bool => array_keys($groups) === ['person'] && $groups['person']['total'] === 1 && $groups['person']['debt_cents'] === 8000)->assertViewHas('canFilterConcessionaires', false);
+    }
+
     public function test_empty_overview_shows_two_zero_panels_and_requires_authentication(): void
     {
         $this->get(route('workspace.customers'))->assertRedirect(route('login'));
-        $this->actingAs($this->user('admin'))->get(route('workspace.customers'))->assertOk()->assertSee('Resumen de clientes')->assertSee('Sin saldos pendientes de atención.')->assertViewHas('groups', fn ($groups) => $groups['person']['total'] === 0 && $groups['dealership']['total'] === 0 && $groups['person']['overdue_percent'] === 0 && $groups['dealership']['attention']->isEmpty());
+        $this->actingAs($this->user('admin'))->get(route('workspace.customers'))->assertOk()->assertSee('Resumen de contactos')->assertSee('Sin saldos pendientes de atención.')->assertViewHas('groups', fn ($groups) => $groups['person']['total'] === 0 && $groups['dealership']['total'] === 0 && $groups['person']['overdue_percent'] === 0 && $groups['dealership']['attention']->isEmpty());
     }
 }

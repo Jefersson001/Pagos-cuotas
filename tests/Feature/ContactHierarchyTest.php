@@ -106,14 +106,15 @@ class ContactHierarchyTest extends TestCase
     {
         $data = $this->portfolio();
         $this->actingAs($data['head'])->get(route('clients.index'))->assertOk()->assertSee('Concesionario A')->assertSee('Concesionario B')->assertDontSee('Concesionario ajeno')->assertDontSee('Comprador privado')->assertDontSee('Nuevo cliente')->assertSee('Nuevo concesionario');
-        $response = $this->get(route('head-office.overview', ['dealership_id' => $data['foreignContact']->dealership_id]))->assertOk()->assertDontSee('Comprador privado')->assertDontSee('Concesionario ajeno');
-        $rows = $response->viewData('rows');
-        $this->assertCount(2, $rows);
-        $this->assertSame(2, $rows->sum('clients'));
-        $this->assertSame(30000, $rows->sum('sold_cents'));
-        $this->assertSame(9000, $rows->sum('received_cents'));
-        $this->assertSame(28000, $rows->sum('debt_cents'));
-        $this->assertSame(7000, $rows->sum('credit_cents'));
+        $response = $this->get(route('head-office.overview', ['dealership_id' => $data['foreignContact']->dealership_id]))->assertOk()->assertSee('Comprador privado')->assertDontSee('Concesionario ajeno');
+        $groups = $response->viewData('groups');
+        foreach (['person', 'dealership'] as $kind) {
+            $this->assertSame(2, $groups[$kind]['total']);
+            $this->assertSame(30000, $groups[$kind]['sold_month_cents']);
+            $this->assertSame(9000, $groups[$kind]['received_month_cents']);
+            $this->assertSame(28000, $groups[$kind]['debt_cents']);
+            $this->assertSame(7000, $groups[$kind]['credit_cents']);
+        }
         $this->get(route('clients.show', $data['contactA']))->assertOk()->assertSee('Ficha del concesionario')->assertSee('Resultados del concesionario')->assertDontSee('Comprador privado')->assertDontSee('Nueva venta')->assertDontSee('Registrar pago')->assertDontSee('Eliminar registro');
         $this->get(route('clients.edit', $data['contactA']))->assertOk();
         foreach ([['clients.show', $data['clientA']], ['clients.show', $data['foreignContact']], ['orders.show', $data['orderA']]] as [$route, $record]) {

@@ -25,12 +25,13 @@ use Illuminate\View\View;
 
 class ClientController extends Controller
 {
-    public function directory(Request $request): View
+    public function directory(Request $request, CustomerOverviewService $overview): View
     {
         abort_unless($request->user()->isHeadOffice(), 403);
         $values = $request->validate([
             'q' => 'nullable|string|max:255',
             'active' => 'nullable|in:0,1',
+            'account_state' => 'nullable|in:debt,overdue,credit,due_soon,received,sales',
             'concessionaire_id' => ['nullable', 'integer', Rule::exists('clients', 'id')->where('customer_kind', 'dealership')->where('dealership_id', $request->user()->dealership_id)],
         ]);
         $query = Client::headOfficeCustomers($request->user())->with(['owner', 'concessionaire']);
@@ -43,6 +44,10 @@ class ClientController extends Controller
         }
         if ($request->filled('concessionaire_id')) {
             $query->where('concessionaire_id', $request->integer('concessionaire_id'));
+        }
+        if ($request->filled('account_state')) {
+            $group = $overview->build($request)['groups']['person'];
+            $query->whereIn('id', $group['account_ids'][$values['account_state']]);
         }
 
         return view('clients.index', [
@@ -110,14 +115,15 @@ class ClientController extends Controller
         if ($r->filled('active')) {
             $q->where('active', $r->boolean('active'));
         }
-        if ($r->filled('account_state')) {
-            abort_if($r->user()->isHeadOffice(), 403);
+        if ($r->filled('account_state') || (($r->user()->isAdmin() || $r->user()->isHeadOffice()) && $r->filled('concessionaire_id'))) {
             $groups = $overview->build($r)['groups'];
-            $ids = collect($groups)->flatMap(fn (array $group): array => $group['account_ids'][$r->input('account_state')])->all();
+            $state = $r->filled('account_state') ? $r->input('account_state') : 'all';
+            $ids = collect($groups)->flatMap(fn (array $group): array => $group['account_ids'][$state])->all();
             $q->whereIn('id', $ids);
         }
 
-        return view('clients.index', ['clients' => $q->latest()->paginate(15)->withQueryString(), 'customerKind' => $customerKind]);
+        return view('clients.index', ['clients' => $q->latest()->paginate(15)->withQueryString(), 'customerKind' => $customerKind,
+            'concessionaires' => $r->user()->isAdmin() || $r->user()->isHeadOffice() ? Client::visibleTo($r->user())->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name']) : collect()]);
     }
 
     public function create(Request $r)

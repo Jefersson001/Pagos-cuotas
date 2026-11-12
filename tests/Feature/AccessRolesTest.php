@@ -94,11 +94,11 @@ class AccessRolesTest extends TestCase
             ->assertViewHas('modules', fn ($modules) => array_keys($modules) === ['head-office', 'products', 'payments', 'reports', 'settings'] && isset($modules['head-office']['description']))
             ->assertSee('Registra tus concesionarios')->assertDontSee('Programa ventas, organiza cuotas');
         $response = $this->get(route('head-office.overview', ['dealership_id' => $data['foreign']->id, 'client_id' => $data['clientA']->id]))->assertOk();
-        $rows = $response->viewData('rows');
-
-        $this->assertCount(1, $rows);
-        foreach (['clients', 'sold_cents', 'debt_cents', 'received_cents', 'credit_cents'] as $metric) {
-            $this->assertSame(0, $rows->sum($metric));
+        $groups = $response->viewData('groups');
+        $this->assertSame(1, $groups['dealership']['total']);
+        $this->assertSame(0, $groups['person']['total']);
+        foreach (['sold_month_cents', 'debt_cents', 'received_month_cents', 'credit_cents'] as $metric) {
+            $this->assertSame(0, $groups['dealership'][$metric]);
         }
         $response->assertSee($contact->name)->assertDontSee('Sucursal A')->assertDontSee('CLIENTE SECRETO')->assertDontSee('SUCURSAL RESERVADA')->assertDontSee('NOTA INTERNA');
         $this->get(route('clients.index'))->assertOk()->assertSee($contact->name)->assertDontSee('CLIENTE SECRETO');

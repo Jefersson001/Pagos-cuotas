@@ -5,16 +5,18 @@ namespace App\Http\Controllers;
 use App\Models\Client;
 use App\Models\Order;
 use App\Models\Receipt;
-use App\Services\HeadOfficeOverviewService;
+use App\Services\CustomerOverviewService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class PortalController extends Controller
 {
-    public function headOffice(Request $request, HeadOfficeOverviewService $overview): View
+    public function headOffice(Request $request, CustomerOverviewService $overview): View
     {
-        return view('workspace.head-office', $overview->build($request));
+        abort_unless($request->user()->isHeadOffice(), 403);
+
+        return view('workspace.customers', $overview->build($request));
     }
 
     private function client(Request $request): Client

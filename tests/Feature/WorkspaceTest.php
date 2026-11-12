@@ -31,7 +31,7 @@ class WorkspaceTest extends TestCase
     public function test_home_requires_login_and_has_five_real_modules(): void
     {
         $this->get(route('home'))->assertRedirect(route('login'));
-        $this->actingAs($this->admin())->get(route('home'))->assertOk()->assertSee('Tu espacio de trabajo')->assertSee('data-module-card', false)->assertSee('Clientes')->assertSee('Productos')->assertSee('Reportes')->assertSee('Ajustes')->assertViewHas('modules', fn ($modules) => count($modules) === 5 && ! isset($modules['summary']));
+        $this->actingAs($this->admin())->get(route('home'))->assertOk()->assertSee('Tu espacio de trabajo')->assertSee('data-module-card', false)->assertSee('Contactos')->assertSee('Productos')->assertSee('Reportes')->assertSee('Ajustes')->assertViewHas('modules', fn ($modules) => count($modules) === 5 && ! isset($modules['summary']));
         foreach (['workspace.customers', 'workspace.products', 'workspace.sales', 'reports', 'workspace.settings'] as $route) {
             $this->get(route($route))->assertOk();
         }

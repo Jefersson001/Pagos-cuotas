@@ -67,7 +67,8 @@ class ReceiptApprovalTest extends TestCase
         $this->get(route('workspace.customers'))->assertOk()
             ->assertSee(route('clients.index', ['customer_kind' => 'person', 'account_state' => 'overdue']));
         $this->actingAs($data['customer'])->get(route('clients.index', ['account_state' => 'credit']))->assertForbidden();
-        $this->actingAs($data['head'])->get(route('clients.index', ['account_state' => 'credit']))->assertForbidden();
+        $this->actingAs($data['head'])->get(route('clients.index', ['account_state' => 'credit']))->assertOk()
+            ->assertViewHas('clients', fn ($clients) => $clients->modelKeys() === [$data['dealer']->id]);
     }
 
     public function test_head_office_home_keeps_scoped_pending_count_without_summary_panels(): void
