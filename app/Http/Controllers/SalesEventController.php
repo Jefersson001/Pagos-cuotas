@@ -7,7 +7,9 @@ use App\Models\Order;
 use App\Models\SalesEvent;
 use App\Services\Audit;
 use App\Services\DealershipContext;
+use App\Support\Money;
 use App\Support\MonthlyDateFilter;
+use App\Support\ReportPrintContext;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -26,7 +28,7 @@ class SalesEventController extends Controller
         MonthlyDateFilter::apply($request);
         $canFilter = $request->user()->isAdmin() || $request->user()->isHeadOffice();
         $concessionaires = $canFilter ? Client::visibleTo($request->user())->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name', 'dealership_id']) : collect();
-        $request->validate(['q' => 'nullable|string|max:100', 'active' => 'nullable|in:0,1', 'concessionaire_id' => ['nullable', 'integer', Rule::in($concessionaires->pluck('id')->all())]]);
+        $request->validate(['q' => 'nullable|string|max:100', 'active' => 'nullable|in:0,1', 'concessionaire_id' => ['nullable', 'integer', Rule::in($concessionaires->pluck('id')->all())], 'print' => 'sometimes|boolean']);
         $orders = $request->user()->isHeadOffice() ? Order::headOfficePortfolio($request->user()) : Order::visibleTo($request->user());
         $orders->where('cancelled', false)->whereDate('created_at', '>=', $request->input('from'))->whereDate('created_at', '<=', $request->input('to'));
         if ($canFilter && $request->filled('concessionaire_id')) {
@@ -42,7 +44,27 @@ class SalesEventController extends Controller
             $query->where('active', $request->input('active'));
         }
 
-        return view('sales-events.index', ['events' => $query->orderByDesc('sales_total')->orderByDesc('sales_count')->orderBy('name')->paginate(20)->withQueryString(), 'concessionaires' => $concessionaires]);
+        $query->orderByDesc('sales_total')->orderByDesc('sales_count')->orderBy('name');
+        if ($request->boolean('print')) {
+            $events = $query->get();
+            $filters = ['Estado de jornadas' => $request->filled('active') ? ($request->input('active') === '1' ? 'Activo' : 'Inactivo') : 'Todos'];
+            if ($request->filled('q')) {
+                $filters['Nombre de jornada'] = $request->input('q');
+            }
+            if ($canFilter) {
+                $filters['Concesionario'] = $request->filled('concessionaire_id') ? $concessionaires->firstWhere('id', $request->integer('concessionaire_id'))->name : 'Todos los concesionarios';
+            }
+
+            return view('reports.print', ReportPrintContext::make($request, $filters) + [
+                'reportTitle' => 'Comparativo de jornadas de venta',
+                'dateHint' => 'Ventas no canceladas, por fecha de creación. Se compara cantidad e importe vendido; estos importes no representan cobros ni utilidad.',
+                'columns' => ['Empresa', 'Jornada', 'Tipo', 'Estado', 'Ventas', 'Importe vendido'], 'total' => $events->count(),
+                'printRows' => $events->map(fn (SalesEvent $event): array => [$event->dealership->name, $event->name, $event->is_default ? 'Normal · Predeterminada' : 'Especial', $event->active ? 'Activo' : 'Inactivo', $event->sales_count, $event->sales_total ?? '0.00']),
+                'footerRow' => ['Total', '', '', '', $events->sum('sales_count'), Money::decimal((int) $events->sum(fn (SalesEvent $event): int => Money::cents($event->sales_total ?? '0.00')))],
+            ]);
+        }
+
+        return view('sales-events.index', ['events' => $query->paginate(20)->withQueryString(), 'concessionaires' => $concessionaires]);
     }
 
     public function options(Request $request): JsonResponse

@@ -1,6 +1,6 @@
 @extends('layouts.app')
 @section('title','Jornadas de venta')
-@section('actions')@can('create',\App\Models\SalesEvent::class)<a class="btn primary" href="{{ route('sales-events.create') }}"><i data-lucide="plus"></i>Nueva jornada</a>@endcan @endsection
+@section('actions')@can('create',\App\Models\SalesEvent::class)<a class="btn primary" href="{{ route('sales-events.create') }}"><i data-lucide="plus"></i>Nueva jornada</a>@endcan <a class="btn secondary" target="_blank" rel="noopener" href="{{ route('sales-events.index',array_merge(request()->except(['page','print','export']),['dealership_id'=>$currentDealership?->id??'','print'=>1])) }}"><i data-lucide="printer"></i>Imprimir / PDF</a>@endsection
 @section('content')
 <section class="card table-card" data-live-panel>
     <form class="filters wrap live-filters" data-live-filters data-live-dates data-date-default="month" data-timezone="{{ config('app.timezone') }}">
