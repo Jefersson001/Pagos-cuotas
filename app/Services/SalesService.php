@@ -8,6 +8,7 @@ use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Receipt;
+use App\Models\SalesEvent;
 use App\Models\User;
 use App\Support\Money;
 use Carbon\Carbon;
@@ -36,6 +37,12 @@ class SalesService
                 Gate::forUser($actor)->authorize('view', $old);
 
                 return $old;
+            }
+            $salesEvent = isset($data['sales_event_id'])
+                ? SalesEvent::where('dealership_id', $client->dealership_id)->where('active', true)->lockForUpdate()->find($data['sales_event_id'])
+                : SalesEvent::defaultForCompany($client->dealership_id);
+            if (! $salesEvent || ! $salesEvent->active) {
+                throw ValidationException::withMessages(['sales_event_id' => 'Selecciona una jornada activa de la empresa del cliente.']);
             }
             $priceAdjustments = [];
             $directPaymentTotal = 0;
@@ -136,7 +143,7 @@ class SalesService
                     $this->fail('La suma de las cuotas debe coincidir exactamente con el saldo financiado.');
                 }
             }
-            $order = Order::create(['token' => $data['token'], 'user_id' => $client->user_id, 'dealership_id' => $client->dealership_id, 'client_id' => $client->id, 'description' => $data['description'], 'total' => Money::decimal($total), 'initial_amount' => Money::decimal($initial), 'frequency' => $data['frequency'], 'notes' => $data['notes'] ?? null]);
+            $order = Order::create(['token' => $data['token'], 'user_id' => $client->user_id, 'dealership_id' => $client->dealership_id, 'client_id' => $client->id, 'sales_event_id' => $salesEvent->id, 'description' => $data['description'], 'total' => Money::decimal($total), 'initial_amount' => Money::decimal($initial), 'frequency' => $data['frequency'], 'notes' => $data['notes'] ?? null]);
             $createdItems = $order->items()->createMany($items);
             foreach ($createdItems as $item) {
                 if (isset($products) && $item->product_id && ! $products->get($item->product_id)->pay_in_installments) {

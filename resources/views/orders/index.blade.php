@@ -9,4 +9,4 @@
 <label>Concesionario<select name="concessionaire_id"><option value="">Todos los concesionarios</option>@foreach($concessionaires as $dealer)<option value="{{ $dealer->id }}" @selected(request('concessionaire_id')==$dealer->id)>{{ $dealer->name }}</option>@endforeach</select></label>
 <label>Cliente<select name="client_id"><option value="">Todos los clientes</option>@foreach($clients as $client)<option value="{{ $client->id }}" @selected(request('client_id')==$client->id)>{{ $client->name }} · {{ $client->document }} · {{ $client->concessionaire->name }}</option>@endforeach</select></label>
 @endif
-</form>@include('orders.table',['orders'=>$orders])<div class="pagination">{{ $orders->links() }}</div></section>@endsection
+<label>Jornada de venta<select name="sales_event_id"><option value="">Todas las jornadas</option>@foreach($salesEvents as $event)<option value="{{ $event->id }}" @selected(request('sales_event_id')==$event->id)>{{ $event->name }}</option>@endforeach</select></label></form>@include('orders.table',['orders'=>$orders])<div class="pagination">{{ $orders->links() }}</div></section>@endsection

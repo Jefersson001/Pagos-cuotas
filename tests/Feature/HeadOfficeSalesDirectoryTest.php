@@ -57,7 +57,7 @@ class HeadOfficeSalesDirectoryTest extends TestCase
         $modules = $data['head']->workspaceModules();
         $this->assertSame('Ventas', $modules['payments']['name']);
         $this->assertSame('head-office.sales.overview', $modules['payments']['route']);
-        $this->assertSame(['Resumen', 'Ventas', 'Pagos'], array_column($modules['payments']['children'], 'name'));
+        $this->assertSame(['Resumen', 'Ventas', 'Jornadas de venta', 'Pagos'], array_column($modules['payments']['children'], 'name'));
         $this->actingAs($data['head'])->get(route('head-office.orders.index', ['dealership_id' => $data['foreign']->dealership_id]))->assertOk()
             ->assertViewHas('orders', fn ($orders) => $orders->total() === 2)
             ->assertSee('Venta Norte')->assertSee('Venta Sur')->assertSee('Solo consulta')->assertSee('Concesionario')

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Collection;
 
 class Order extends OwnedModel
@@ -18,12 +19,17 @@ class Order extends OwnedModel
 
     protected function casts(): array
     {
-        return ['total' => 'decimal:2', 'initial_amount' => 'decimal:2', 'cancelled' => 'boolean'];
+        return ['total' => 'decimal:2', 'initial_amount' => 'decimal:2', 'cancelled' => 'boolean', 'sales_event_id' => 'integer'];
     }
 
     public function client()
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function salesEvent(): BelongsTo
+    {
+        return $this->belongsTo(SalesEvent::class);
     }
 
     public function items()

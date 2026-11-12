@@ -25,6 +25,7 @@ class DatabaseSeeder extends Seeder
         }
         Role::firstOrCreate(['name' => 'user']);
         Role::firstOrCreate(['name' => 'dealership_admin']);
+        $this->call(SalesEventSeeder::class);
         foreach (['Efectivo', 'Transferencia', 'Pago Móvil', 'Zelle', 'Divisas', 'Otro'] as $name) {
             PaymentMethod::firstOrCreate(['name' => $name, 'dealership_id' => Dealership::orderBy('id')->value('id')]);
         }

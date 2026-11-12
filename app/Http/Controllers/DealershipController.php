@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Dealership;
 use App\Models\PaymentMethod;
+use App\Models\SalesEvent;
 use App\Services\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -94,6 +95,7 @@ class DealershipController extends Controller
             $before = $dealership->getAttributes();
             $dealership->fill($values)->save();
             if ($new) {
+                SalesEvent::defaultForCompany($dealership->id);
                 foreach (['Efectivo', 'Transferencia', 'Pago Móvil', 'Zelle', 'Divisas', 'Otro'] as $name) {
                     PaymentMethod::create(['dealership_id' => $dealership->id, 'name' => $name, 'active' => true]);
                 }

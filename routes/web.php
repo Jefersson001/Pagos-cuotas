@@ -13,6 +13,7 @@ use App\Http\Controllers\RecordActionController;
 use App\Http\Controllers\RemittanceController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SalesController;
+use App\Http\Controllers\SalesEventController;
 use App\Http\Controllers\WorkspaceController;
 use App\Http\Middleware\ActiveUser;
 use App\Http\Middleware\RoleAccess;
@@ -51,6 +52,8 @@ Route::middleware(['auth', 'auth.session', ActiveUser::class, RoleAccess::class]
     Route::get('/clients/create', fn () => redirect()->route('clients.create'));
     Route::get('/clients/{client}/edit', fn (string $client) => redirect()->route('clients.edit', $client));
     Route::get('/clients/{client}', fn (string $client) => redirect()->route('clients.show', $client));
+    Route::get('/sales-events/options', [SalesEventController::class, 'options'])->name('sales-events.options');
+    Route::resource('sales-events', SalesEventController::class);
     Route::get('/orders', [SalesController::class, 'orders'])->name('orders.index');
     Route::get('/products/options', [ProductController::class, 'options'])->name('products.options');
     Route::resource('products', ProductController::class);

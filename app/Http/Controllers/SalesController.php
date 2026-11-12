@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\Receipt;
+use App\Models\SalesEvent;
 use App\Services\Audit;
 use App\Services\DealershipContext;
 use App\Services\ReceiptService;
@@ -29,16 +30,21 @@ class SalesController extends Controller
     {
         abort_unless($request->user()->isHeadOffice(), 403);
         MonthlyDateFilter::apply($request);
+        $salesEvents = SalesEvent::visibleTo($request->user())->orderBy('name')->get(['id', 'name']);
         $concessionaires = Client::where('dealership_id', $request->user()->dealership_id)->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name']);
         $request->validate([
             'q' => 'nullable|string|max:255',
             'concessionaire_id' => ['nullable', 'integer', Rule::in($concessionaires->modelKeys())],
             'client_id' => ['nullable', 'integer', Rule::exists('clients', 'id')->where('dealership_id', $request->user()->dealership_id)->where('customer_kind', 'person')->whereIn('concessionaire_id', $concessionaires->modelKeys())],
+            'sales_event_id' => ['nullable', 'integer', Rule::in($salesEvents->modelKeys())],
         ]);
-        $query = Order::headOfficePortfolio($request->user())->with(['client.concessionaire', 'dealership', 'payments', 'installments.allocations.payment'])
+        $query = Order::headOfficePortfolio($request->user())->with(['client.concessionaire', 'dealership', 'salesEvent', 'payments', 'installments.allocations.payment'])
             ->whereDate('created_at', '>=', $request->input('from'))->whereDate('created_at', '<=', $request->input('to'));
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->integer('client_id'));
+        }
+        if ($request->filled('sales_event_id')) {
+            $query->where('sales_event_id', $request->integer('sales_event_id'));
         }
         if ($request->filled('concessionaire_id')) {
             $query->whereHas('client', fn (Builder $clients) => $clients->where('concessionaire_id', $request->integer('concessionaire_id')));
@@ -51,7 +57,7 @@ class SalesController extends Controller
 
         return view('orders.index', [
             'orders' => $query->latest()->paginate(15)->withQueryString(),
-            'readOnlyPortfolio' => true, 'concessionaires' => $concessionaires,
+            'readOnlyPortfolio' => true, 'concessionaires' => $concessionaires, 'salesEvents' => $salesEvents,
             'clients' => Client::headOfficeCustomers($request->user())->with('concessionaire:id,name')->orderBy('name')->get(['id', 'name', 'document', 'concessionaire_id']),
         ]);
     }
@@ -59,14 +65,19 @@ class SalesController extends Controller
     public function orders(Request $r)
     {
         MonthlyDateFilter::apply($r);
-        $q = Order::visibleTo($r->user())->with(['client', 'payments', 'installments.allocations.payment']);
+        $salesEvents = SalesEvent::visibleTo($r->user())->orderBy('name')->get(['id', 'name']);
+        $r->validate(['sales_event_id' => ['nullable', 'integer', Rule::in($salesEvents->modelKeys())]]);
+        $q = Order::visibleTo($r->user())->with(['client', 'salesEvent', 'payments', 'installments.allocations.payment']);
+        if ($r->filled('sales_event_id')) {
+            $q->where('sales_event_id', $r->integer('sales_event_id'));
+        }
         $q->whereDate('created_at', '>=', $r->input('from'))->whereDate('created_at', '<=', $r->input('to'));
         if ($r->filled('q')) {
             $term = $r->string('q')->toString();
             $q->where(fn ($q) => $q->where('description', 'like', "%$term%")->orWhere('id', $term)->orWhereHas('client', fn ($c) => $c->where('name', 'like', "%$term%")));
         }
 
-        return view('orders.index', ['orders' => $q->latest()->paginate(15)->withQueryString()]);
+        return view('orders.index', ['orders' => $q->latest()->paginate(15)->withQueryString(), 'salesEvents' => $salesEvents]);
     }
 
     public function create(Request $r)
@@ -98,7 +109,12 @@ class SalesController extends Controller
             }
         }
 
-        return view('orders.create', ['selectedClient' => $client ? $this->clientOption($client) : null, 'selectedItems' => $selectedItems, 'productSearchUrl' => route('products.options'), 'clientSearchUrl' => route('orders.client-options', ['dealership_id' => DealershipContext::id($r->user()) ?? ''])]);
+        if ($client) {
+            SalesEvent::defaultForCompany($client->dealership_id);
+        }
+        $salesEvents = $client ? SalesEvent::where('dealership_id', $client->dealership_id)->where('active', true)->orderByDesc('is_default')->orderBy('name')->get(['id', 'name', 'is_default']) : collect();
+
+        return view('orders.create', ['salesEvents' => $salesEvents, 'selectedClient' => $client ? $this->clientOption($client) : null, 'selectedItems' => $selectedItems, 'productSearchUrl' => route('products.options'), 'clientSearchUrl' => route('orders.client-options', ['dealership_id' => DealershipContext::id($r->user()) ?? ''])]);
     }
 
     public function clientOptions(Request $r): JsonResponse
@@ -121,7 +137,7 @@ class SalesController extends Controller
 
     public function store(Request $r, SalesService $service)
     {
-        $v = $r->validate(['token' => 'required|uuid', 'client_id' => 'required|integer', 'items' => 'required|array|min:1|max:100', 'items.*.product_id' => 'required|integer|distinct', 'items.*.catalog_version' => 'nullable|string|size:64', 'items.*.quantity' => 'required|integer|min:1|max:100000', 'items.*.use_custom_amounts' => 'sometimes|boolean', 'items.*.unit_price' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'items.*.initial_amount' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'installment_count' => 'required|integer|min:1|max:120', 'frequency' => 'required|in:weekly,fortnightly,monthly,first_half,second_half,custom', 'first_due' => 'required|date_format:Y-m-d', 'custom' => 'nullable|array|max:120', 'custom.*.amount' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/', 'custom.*.due_date' => 'required|date_format:Y-m-d', 'notes' => 'nullable|string|max:3000']);
+        $v = $r->validate(['sales_event_id' => 'nullable|integer', 'token' => 'required|uuid', 'client_id' => 'required|integer', 'items' => 'required|array|min:1|max:100', 'items.*.product_id' => 'required|integer|distinct', 'items.*.catalog_version' => 'nullable|string|size:64', 'items.*.quantity' => 'required|integer|min:1|max:100000', 'items.*.use_custom_amounts' => 'sometimes|boolean', 'items.*.unit_price' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'items.*.initial_amount' => 'required_if:items.*.use_custom_amounts,1,true|nullable|string|regex:/^\d{1,10}(\.\d{1,2})?$/', 'installment_count' => 'required|integer|min:1|max:120', 'frequency' => 'required|in:weekly,fortnightly,monthly,first_half,second_half,custom', 'first_due' => 'required|date_format:Y-m-d', 'custom' => 'nullable|array|max:120', 'custom.*.amount' => 'required|regex:/^\d{1,10}(\.\d{1,2})?$/', 'custom.*.due_date' => 'required|date_format:Y-m-d', 'notes' => 'nullable|string|max:3000']);
         $order = $service->create($r->user(), $v);
 
         return redirect()->route('orders.show', $order)->with('success', 'Venta creada y cronograma registrado.');
@@ -130,7 +146,7 @@ class SalesController extends Controller
     public function show(Request $r, Order $order)
     {
         Gate::authorize('view', $order);
-        $order->load(['client.receipts.applications', 'owner', 'items', 'payments.method', 'payments.recorder', 'installments.allocations.payment']);
+        $order->load(['salesEvent', 'client.receipts.applications', 'owner', 'items', 'payments.method', 'payments.recorder', 'installments.allocations.payment']);
 
         return view('orders.show', ['order' => $order, 'methods' => PaymentMethod::where('dealership_id', $order->dealership_id)->where('active', true)->get(),
             'freightProducts' => $r->user()->can('update', $order) && $order->canAddFreight() ? Product::where('dealership_id', $order->dealership_id)->where('active', true)->where('product_type', 'service')->where('is_freight', true)->orderBy('name')->get(['id', 'name', 'price']) : collect()]);
