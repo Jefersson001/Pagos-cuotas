@@ -42,7 +42,7 @@ class InstallmentSchedule extends Model
     public function getLabelAttribute(): string
     {
         if ($this->order_item_id !== null) {
-            return 'Pago completo: '.$this->orderItem->description;
+            return ($this->orderItem->is_freight ? 'Flete: ' : 'Pago completo: ').$this->orderItem->description;
         }
 
         return $this->number === 0 ? 'Inicial' : 'Cuota '.$this->number;

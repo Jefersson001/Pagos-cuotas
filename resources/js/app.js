@@ -5,8 +5,8 @@ import { createIcons, Layers, LayoutDashboard, ShoppingBag, UsersRound, Calendar
 const icons={Layers,LayoutDashboard,ShoppingBag,UsersRound,CalendarClock,ChartNoAxesCombined,UserCog,ShieldCheck,Settings2,LogOut,Menu,SunMoon,CircleCheck,ArrowLeft,ArrowRight,Plus,Sparkles,ArrowUpRight,Wallet,BadgeDollarSign,AlarmClock,ChartPie,ChevronRight,CalendarCheck,Search,UserPlus,Check,Pencil,UserRound,Printer,MessageCircle,Download,CalendarDays,PackageCheck,TrendingUp,Trophy,Shapes,Car,Wrench,Package,Calculator,ClipboardList};
 window.Alpine=Alpine;
 Alpine.data('productPlan',seed=>({
- type:seed.type||'general',productName:seed.name||'',image:seed.image||'',uploadBlob:'',price:seed.price,initial:seed.initial,count:seed.count,payInInstallments:seed.payInInstallments??true,vehicleModel:seed.model||'',color:seed.color||'',images:seed.images||{},imageFailed:false,
- init(){this.$watch('vehicleImage',()=>{this.imageFailed=false;});},
+ usesFreight:seed.usesFreight??false,isFreight:seed.isFreight??false,type:seed.type||'general',productName:seed.name||'',image:seed.image||'',uploadBlob:'',price:seed.price,initial:seed.initial,count:seed.count,payInInstallments:seed.payInInstallments??true,vehicleModel:seed.model||'',color:seed.color||'',images:seed.images||{},imageFailed:false,
+ init(){if(this.isFreight)this.payInInstallments=false;this.$watch('isFreight',value=>{if(value)this.payInInstallments=false;});this.$watch('type',value=>{if(value!=='service')this.isFreight=false;if(value==='service')this.usesFreight=false;});this.$watch('vehicleImage',()=>{this.imageFailed=false;});},
  get vehicle(){const model=String(this.vehicleModel).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');return Object.entries(this.images).find(([key,vehicle])=>key===model||(vehicle.aliases||[]).includes(model))?.[1]||null;},
  previewFile(event){const file=event.target.files?.[0];if(this.uploadBlob)URL.revokeObjectURL(this.uploadBlob);this.uploadBlob=file?URL.createObjectURL(file):'';},
  get vehicleImage(){return this.uploadBlob||this.image||(this.type==='vehicle'?this.vehicle?.colors[this.color]:'')||'';},

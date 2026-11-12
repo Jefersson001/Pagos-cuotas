@@ -82,13 +82,18 @@ class ProductController extends Controller
     private function save(Request $r, Product $product): RedirectResponse
     {
         $r->mergeIfMissing(['product_type' => $r->filled('brand') && $r->filled('model') ? 'vehicle' : 'general', 'installment_count' => 5, 'initial_amount' => '0', 'active' => $product->active ?? true, 'pay_in_installments' => $product->pay_in_installments ?? true]);
+        $r->merge(['is_freight' => $r->input('product_type') === 'service' && $r->boolean('is_freight')]);
+        $r->merge(['uses_freight' => in_array($r->input('product_type'), ['general', 'vehicle'], true) && $r->boolean('uses_freight')]);
+        if ($r->boolean('is_freight')) {
+            $r->merge(['pay_in_installments' => false]);
+        }
         if (! $r->boolean('pay_in_installments')) {
             $r->merge(['price' => $r->input('price', $r->input('cash_price')), 'initial_amount' => $r->input('price', $r->input('cash_price')), 'installment_count' => 1]);
         }
         $r->merge(['cash_price' => $r->input('price')]);
         $v = $r->validate([
             'duplicate_product_id' => 'nullable|integer|exists:products,id', 'product_type' => 'required|in:general,vehicle,service', 'name' => 'required_unless:product_type,vehicle|nullable|string|max:180',
-            'sku' => 'nullable|string|max:80', 'description' => 'nullable|string|max:2000', 'pay_in_installments' => 'required|boolean',
+            'sku' => 'nullable|string|max:80', 'description' => 'nullable|string|max:2000', 'pay_in_installments' => 'required|boolean', 'is_freight' => 'required|boolean', 'uses_freight' => 'required|boolean',
             'brand' => 'required_if:product_type,vehicle|nullable|string|max:60', 'model' => 'required_if:product_type,vehicle|nullable|string|max:80',
             'transmission' => ['nullable', Rule::in(array_keys(Product::TRANSMISSIONS))],
             'year' => 'nullable|integer|min:1900|max:'.(today()->year + 1), 'color' => ['nullable', Rule::in(array_keys(Product::COLORS))],
@@ -177,12 +182,12 @@ class ProductController extends Controller
         $r->validate(['client_id' => 'required|integer', 'q' => 'nullable|string|max:120']);
         $client = Client::findOrFail($r->input('client_id'));
         Gate::authorize('view', $client);
-        $query = Product::where('dealership_id', $client->dealership_id)->where('active', true)->whereHas('dealership', fn ($q) => $q->where('active', true));
+        $query = Product::where('dealership_id', $client->dealership_id)->where('active', true)->where('is_freight', false)->whereHas('dealership', fn ($q) => $q->where('active', true));
         if ($r->filled('q')) {
             $term = '%'.$r->input('q').'%';
             $query->where(fn ($q) => $q->where('name', 'like', $term)->orWhere('sku', 'like', $term));
         }
-        $products = $query->orderBy('name')->orderBy('id')->limit(16)->get(['id', 'name', 'price', 'initial_amount', 'installment_count', 'pay_in_installments']);
+        $products = $query->orderBy('name')->orderBy('id')->limit(16)->get(['id', 'name', 'price', 'initial_amount', 'installment_count', 'pay_in_installments', 'is_freight', 'uses_freight']);
 
         return response()->json(['products' => $products->take(15)->map(fn (Product $product): array => [
             'id' => $product->id, 'name' => $product->name, 'price' => $product->price,

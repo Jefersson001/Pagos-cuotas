@@ -78,7 +78,7 @@ class SalesController extends Controller
         if ($client) {
             $oldItems = $r->old('items', []);
             $ids = collect(is_array($oldItems) ? $oldItems : [])->pluck('product_id')->filter(fn ($id) => is_scalar($id) && ctype_digit((string) $id));
-            $products = Product::where('dealership_id', $client->dealership_id)->where('active', true)->whereIn('id', $ids)->get()->keyBy('id');
+            $products = Product::where('dealership_id', $client->dealership_id)->where('active', true)->where('is_freight', false)->whereIn('id', $ids)->get()->keyBy('id');
             foreach (is_array($oldItems) ? $oldItems : [] as $item) {
                 if (! is_array($item) || ! is_scalar($item['product_id'] ?? null)) {
                     continue;
@@ -132,7 +132,17 @@ class SalesController extends Controller
         Gate::authorize('view', $order);
         $order->load(['client.receipts.applications', 'owner', 'items', 'payments.method', 'payments.recorder', 'installments.allocations.payment']);
 
-        return view('orders.show', ['order' => $order, 'methods' => PaymentMethod::where('dealership_id', $order->dealership_id)->where('active', true)->get()]);
+        return view('orders.show', ['order' => $order, 'methods' => PaymentMethod::where('dealership_id', $order->dealership_id)->where('active', true)->get(),
+            'freightProducts' => $r->user()->can('update', $order) && $order->canAddFreight() ? Product::where('dealership_id', $order->dealership_id)->where('active', true)->where('product_type', 'service')->where('is_freight', true)->orderBy('name')->get(['id', 'name', 'price']) : collect()]);
+    }
+
+    public function addFreight(Request $request, Order $order, SalesService $service): RedirectResponse
+    {
+        Gate::authorize('update', $order);
+        $values = $request->validate(['freight_product_id' => 'required|integer', 'freight_amount' => 'required|string|regex:/^\d{1,10}(\.\d{1,2})?$/']);
+        $service->addFreight($request->user(), $order, (int) $values['freight_product_id'], $values['freight_amount']);
+
+        return redirect()->route('orders.show', $order)->with('success', 'Flete agregado. Su importe se guardó en esta venta con vencimiento junto a la última cuota.');
     }
 
     public function edit(Order $order): View

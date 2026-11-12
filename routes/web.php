@@ -69,6 +69,7 @@ Route::middleware(['auth', 'auth.session', ActiveUser::class, RoleAccess::class]
     Route::put('/orders/{order}', [SalesController::class, 'update'])->name('orders.update');
     Route::get('/orders/{order}', [SalesController::class, 'show'])->name('orders.show');
     Route::post('/orders/{order}/payments', [SalesController::class, 'pay'])->name('orders.pay');
+    Route::post('/orders/{order}/freight', [SalesController::class, 'addFreight'])->name('orders.freight.store');
     Route::post('/payments/{payment}/void', [SalesController::class, 'void'])->name('payments.void');
     Route::post('/orders/{order}/cancel', [SalesController::class, 'cancel'])->name('orders.cancel');
     Route::get('/collections', [DashboardController::class, 'collections'])->name('collections');

@@ -550,6 +550,7 @@
 
 .sale-detail-layout { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; align-items: start; }
 .sale-detail-layout > * { min-width: 0; }
+.sale-detail-left { display: flex; flex-direction: column; gap: 16px; }
 .view-tabs.card > .view-tabs-nav { margin: 0; padding: 8px 12px 0; border-radius: 11px 11px 0 0; }
 .view-tabs.card > [data-tab-panel] > .card { border: 0; border-radius: 0; background: transparent; margin: 0; }
 .view-tabs.card > [data-tab-panel] > .card + .card { border-top: 1px solid var(--line); }

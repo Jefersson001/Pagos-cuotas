@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Client;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Receipt;
@@ -47,6 +48,9 @@ class SalesService
                     $product = $products->get($item['product_id'] ?? null);
                     if (! $product) {
                         $this->fail('Selecciona productos activos de la misma empresa.');
+                    }
+                    if ($product->is_freight) {
+                        $this->fail('Los servicios de flete se agregan después del pago aprobado de la penúltima cuota.');
                     }
                     if (! empty($item['catalog_version']) && ! hash_equals($product->catalog_version, $item['catalog_version'])) {
                         $this->fail('El producto cambió mientras preparabas la venta. Vuelve a seleccionarlo para revisar sus importes.');
@@ -138,6 +142,41 @@ class SalesService
             Audit::log($actor->id, 'create', 'order', $order->id, ['total' => $order->total] + ($priceAdjustments ? ['price_adjustments' => $priceAdjustments] : []));
 
             return $order;
+        }, 3);
+    }
+
+    public function addFreight(User $actor, Order $order, int $productId, string $amount): OrderItem
+    {
+        return DB::transaction(function () use ($actor, $order, $productId, $amount): OrderItem {
+            $client = Client::lockForUpdate()->findOrFail($order->client_id);
+            $lockedOrder = Order::lockForUpdate()->findOrFail($order->id);
+            Gate::forUser($actor)->authorize('update', $lockedOrder);
+            DealershipContext::forWrite($actor, null, $lockedOrder->dealership_id);
+            $cents = Money::cents($amount);
+            if ($existing = $lockedOrder->items()->where('is_freight', true)->first()) {
+                if ($existing->product_id === $productId && Money::cents($existing->unit_price) === $cents) {
+                    return $existing;
+                }
+                throw ValidationException::withMessages(['freight_product_id' => 'Esta venta ya tiene un flete registrado.']);
+            }
+            if (! $client->active || ! $lockedOrder->canAddFreight()) {
+                throw ValidationException::withMessages(['freight_product_id' => 'La venta debe incluir un producto marcado con Usa flete y tener la penúltima cuota completamente pagada con pagos aprobados.']);
+            }
+            $product = Product::where('dealership_id', $lockedOrder->dealership_id)->where('product_type', 'service')->where('is_freight', true)->where('active', true)->lockForUpdate()->find($productId);
+            if (! $product) {
+                throw ValidationException::withMessages(['freight_product_id' => 'Selecciona un servicio de flete activo de esta empresa.']);
+            }
+            $total = Money::cents($lockedOrder->total) + $cents;
+            if ($cents <= 0 || $total > 999999999999) {
+                throw ValidationException::withMessages(['freight_amount' => 'El importe debe ser mayor a cero y no superar el límite de la venta.']);
+            }
+            $lastInstallment = $lockedOrder->installments->whereNull('order_item_id')->where('number', '>', 0)->sortBy('number')->last();
+            $item = $lockedOrder->items()->create(['product_id' => $product->id, 'description' => $product->name, 'quantity' => 1, 'unit_price' => Money::decimal($cents), 'initial_amount' => '0.00', 'is_freight' => true]);
+            $lockedOrder->installments()->create(['number' => null, 'order_item_id' => $item->id, 'due_date' => $lastInstallment->due_date, 'amount' => Money::decimal($cents)]);
+            $lockedOrder->update(['total' => Money::decimal($total)]);
+            Audit::log($actor->id, 'add_freight', 'order', $lockedOrder->id, ['order_item_id' => $item->id, 'product_id' => $product->id, 'catalog_price' => $product->price, 'agreed_price' => $item->unit_price, 'due_date' => $lastInstallment->due_date->toDateString(), 'total' => $lockedOrder->total]);
+
+            return $item;
         }, 3);
     }
 

@@ -33,8 +33,22 @@ class Order extends OwnedModel
     public function installments()
     {
         return $this->hasMany(InstallmentSchedule::class)
-            ->orderByRaw('CASE WHEN order_item_id IS NOT NULL THEN 0 WHEN number = 0 THEN 1 ELSE 2 END')
+            ->orderByRaw('CASE WHEN EXISTS (SELECT 1 FROM order_items WHERE order_items.id = installment_schedules.order_item_id AND order_items.is_freight = 1) THEN 3 WHEN order_item_id IS NOT NULL THEN 0 WHEN number = 0 THEN 1 ELSE 2 END')
             ->orderBy('due_date')->orderBy('number')->orderBy('id');
+    }
+
+    public function canAddFreight(): bool
+    {
+        if ($this->cancelled || $this->items->contains('is_freight', true)) {
+            return false;
+        }
+        if (! $this->items()->where('is_freight', false)->whereHas('product', fn (Builder $products): Builder => $products
+            ->where('uses_freight', true)->whereIn('product_type', ['general', 'vehicle'])->where('dealership_id', $this->dealership_id))->exists()) {
+            return false;
+        }
+        $regular = $this->installments->filter(fn (InstallmentSchedule $installment): bool => $installment->order_item_id === null && $installment->number > 0)->sortBy('number')->values();
+
+        return $regular->count() >= 2 && $regular[$regular->count() - 2]->remaining_cents === 0;
     }
 
     public function payments()

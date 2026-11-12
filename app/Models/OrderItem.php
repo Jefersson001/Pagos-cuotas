@@ -10,6 +10,11 @@ class OrderItem extends Model
 
     protected $guarded = [];
 
+    protected function casts(): array
+    {
+        return ['is_freight' => 'boolean'];
+    }
+
     public function order()
     {
         return $this->belongsTo(Order::class);

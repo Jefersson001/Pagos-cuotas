@@ -49,7 +49,7 @@ class RecordActionController extends Controller
         $record = $this->record($request, $type, $id);
         $fields = match ($type) {
             'client' => ['customer_kind', 'name', 'phone', 'email', 'address', 'city', 'state', 'whatsapp', 'notes', 'active', 'dealership_id', 'concessionaire_id', 'business_type', 'condition', 'started_at', 'legal_representative'],
-            'product' => ['product_type', 'name', 'description', 'brand', 'model', 'transmission', 'year', 'color', 'cash_price', 'price', 'initial_amount', 'installment_count', 'pay_in_installments', 'active', 'dealership_id'],
+            'product' => ['product_type', 'name', 'description', 'brand', 'model', 'transmission', 'year', 'color', 'cash_price', 'price', 'initial_amount', 'installment_count', 'pay_in_installments', 'is_freight', 'uses_freight', 'active', 'dealership_id'],
             'user' => ['name', 'role_id', 'dealership_id'],
             'company' => ['name', 'organization_type', 'parent_id', 'phone', 'address', 'active'],
             'method' => ['name', 'active', 'dealership_id'],
@@ -76,7 +76,7 @@ class RecordActionController extends Controller
             $values['duplicate_record'] = 'client';
         }
         if ($type === 'order') {
-            $values['items'] = $record->items->filter(fn ($item) => $item->product_id)->map(fn ($item): array => ['product_id' => $item->product_id, 'quantity' => $item->quantity])->values()->all();
+            $values['items'] = $record->items->filter(fn ($item) => $item->product_id && ! $item->is_freight)->map(fn ($item): array => ['product_id' => $item->product_id, 'quantity' => $item->quantity])->values()->all();
             $values['installment_count'] = max(1, $record->installments->where('number', '>', 0)->count());
             $values['frequency'] = $record->frequency === 'custom' ? 'monthly' : $record->frequency;
         }

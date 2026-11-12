@@ -17,7 +17,7 @@ class Product extends OwnedModel
 
     public function getCatalogVersionAttribute(): string
     {
-        return hash('sha256', implode('|', [$this->id, $this->name, $this->price, $this->initial_amount, $this->installment_count, (int) $this->pay_in_installments]));
+        return hash('sha256', implode('|', [$this->id, $this->name, $this->price, $this->initial_amount, $this->installment_count, (int) $this->pay_in_installments, (int) $this->is_freight, (int) $this->uses_freight]));
     }
 
     public function getRequiredInitialAmountAttribute(): string
@@ -37,7 +37,7 @@ class Product extends OwnedModel
 
     protected function casts(): array
     {
-        return ['price' => 'decimal:2', 'cash_price' => 'decimal:2', 'initial_amount' => 'decimal:2', 'year' => 'integer', 'installment_count' => 'integer', 'active' => 'boolean', 'pay_in_installments' => 'boolean'];
+        return ['price' => 'decimal:2', 'cash_price' => 'decimal:2', 'initial_amount' => 'decimal:2', 'year' => 'integer', 'installment_count' => 'integer', 'active' => 'boolean', 'pay_in_installments' => 'boolean', 'is_freight' => 'boolean', 'uses_freight' => 'boolean'];
     }
 
     protected static function booted(): void
