@@ -154,7 +154,7 @@ class CustomerOverviewService
                 ];
             }
 
-            return ['groups' => $groups, 'updatedAt' => $now, 'monthStart' => $monthStart, 'weekEnd' => $weekEnd,
+            return ['affiliations' => app(ClientAffiliationService::class)->summary($request, $clients), 'groups' => $groups, 'updatedAt' => $now, 'monthStart' => $monthStart, 'weekEnd' => $weekEnd,
                 'concessionaires' => $concessionaires, 'canFilterConcessionaires' => $canFilterConcessionaires,
                 'selectedConcessionaire' => $selectedConcessionaire, 'periodEnd' => $period->to, 'unassignedCount' => $unassignedCount];
         });

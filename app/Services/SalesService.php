@@ -154,6 +154,9 @@ class SalesService
             if ($initial > 0) {
                 $order->installments()->create(['number' => 0, 'due_date' => today()->toDateString(), 'amount' => Money::decimal($initial)]);
             }
+            if ($client->customer_kind === 'person' && $client->affiliation_date === null) {
+                $client->update(['affiliation_date' => $order->created_at->toDateString()]);
+            }
             Audit::log($actor->id, 'create', 'order', $order->id, ['total' => $order->total] + ($priceAdjustments ? ['price_adjustments' => $priceAdjustments] : []));
 
             return $order;

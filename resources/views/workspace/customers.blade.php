@@ -5,6 +5,7 @@
 @php($money=fn($cents)=>'$'.number_format($cents/100,2))
 <div data-live-panel>
 <x-overview-filters :concessionaires="$concessionaires" :can-filter-concessionaires="$canFilterConcessionaires" />
+<x-client-affiliations :summary="$affiliations" />
 @if(auth()->user()->isAdmin() && !$selectedConcessionaire && $unassignedCount>0)<p class="overview-context"><a class="text-link" href="{{ route('clients.index',['customer_kind'=>'person','unassigned'=>1]) }}">{{ $unassignedCount }} clientes sin concesionario asignado</a></p>@endif
 <div class="customer-overview-period"><span><i data-lucide="calendar-check"></i>Movimientos del período: {{ $monthStart->format('d/m/Y') }} al {{ $periodEnd->format('d/m/Y') }}</span><small>Actualizado a las {{ $updatedAt->format('H:i') }}</small></div>
 <div @class(['customer-overview-grid','customer-overview-single'=>count($groups)===1])>

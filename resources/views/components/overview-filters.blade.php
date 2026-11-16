@@ -1,6 +1,7 @@
 @props(['concessionaires'=>collect(),'canFilterConcessionaires'=>false])
 <form class="filters live-filters card mb-6 overview-filters" data-live-filters data-live-dates data-date-default="month" data-timezone="{{ config('app.timezone') }}">
     <input type="hidden" name="date_mode" value="{{ request('date_mode','month') }}">
+    @if(request()->filled('affiliation_year'))<input type="hidden" name="affiliation_year" value="{{ request('affiliation_year') }}">@endif
     @if(auth()->user()->isAdmin() && request()->has('dealership_id'))<input type="hidden" name="dealership_id" value="{{ request('dealership_id') }}">@endif
     <label>Desde<input type="date" name="from" value="{{ request('from') }}" max="{{ today()->toDateString() }}" required></label>
     <label>Hasta<input type="date" name="to" value="{{ request('to') }}" max="{{ today()->toDateString() }}" required></label>

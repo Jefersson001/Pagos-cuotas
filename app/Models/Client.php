@@ -15,7 +15,7 @@ class Client extends OwnedModel
 
     protected function casts(): array
     {
-        return ['active' => 'boolean', 'concessionaire_id' => 'integer', 'list_number' => 'integer', 'refrigerators' => 'integer', 'refrigerators_assigned_at' => 'date', 'listed_started_at' => 'date', 'registry_date' => 'date', 'started_at' => 'date'];
+        return ['active' => 'boolean', 'affiliation_date' => 'date', 'concessionaire_id' => 'integer', 'list_number' => 'integer', 'refrigerators' => 'integer', 'refrigerators_assigned_at' => 'date', 'listed_started_at' => 'date', 'registry_date' => 'date', 'started_at' => 'date'];
     }
 
     public function scopeHeadOfficeCustomers(Builder $query, User $actor): Builder
@@ -25,6 +25,21 @@ class Client extends OwnedModel
         return $query->where('dealership_id', $actor->dealership_id)->where('customer_kind', 'person')
             ->whereHas('concessionaire', fn (Builder $dealers) => $dealers
                 ->where('customer_kind', 'dealership')->where('dealership_id', $actor->dealership_id));
+    }
+
+    public function scopeAffiliatedBetween(Builder $query, ?string $from, ?string $to): Builder
+    {
+        if ($from || $to) {
+            $query->where('customer_kind', 'person');
+        }
+        if ($from) {
+            $query->whereDate('affiliation_date', '>=', $from);
+        }
+        if ($to) {
+            $query->whereDate('affiliation_date', '<=', $to);
+        }
+
+        return $query;
     }
 
     public function concessionaire(): BelongsTo

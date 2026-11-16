@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @php
 $readOnlyPortfolio=$readOnlyPortfolio??false;
-$profile=$client->customer_kind==='dealership'?['business_type'=>'Tipo','name'=>'Concesionario / Razón social','condition'=>'Condición','started_at'=>'Fecha de inicio','legal_representative'=>'Representante legal','address'=>'Dirección','city'=>'Ciudad','state'=>'Estado','document'=>'RIF','phone'=>'Teléfono','email'=>'Correo']:['name'=>'Nombre','document'=>'Identificación','phone'=>'Teléfono','email'=>'Correo','address'=>'Dirección','city'=>'Ciudad','state'=>'Estado / Región'];
+$profile=$client->customer_kind==='dealership'?['business_type'=>'Tipo','name'=>'Concesionario / Razón social','condition'=>'Condición','started_at'=>'Fecha de inicio','legal_representative'=>'Representante legal','address'=>'Dirección','city'=>'Ciudad','state'=>'Estado','document'=>'RIF','phone'=>'Teléfono','email'=>'Correo']:['affiliation_date'=>'Fecha de afiliación','name'=>'Nombre','document'=>'Identificación','phone'=>'Teléfono','email'=>'Correo','address'=>'Dirección','city'=>'Ciudad','state'=>'Estado / Región'];
 $reportedAccounts=$client->customer_kind==='person'?$client->orders->where('cancelled',false)->map(fn($sale)=>$sale->reportedSummary($client->receipts)):collect();
 $reportedCash=$client->receipts->where('approval_status','pending')->whereNull('voided_at')->sum(fn($receipt)=>\App\Support\Money::cents($receipt->amount));
 @endphp
@@ -21,7 +21,7 @@ $reportedCash=$client->receipts->where('approval_status','pending')->whereNull('
 @endif
 </div>
 <div data-tab-panel="Datos de contacto" data-tab-key="datos">
-<section class="card form-card mb-6" data-concessionaire-details><h2>Ficha del {{ $client->customer_kind==='dealership'?'concesionario':'cliente' }}</h2><div class="detail-grid">@foreach($profile as $field=>$label)<div><small>{{ $label }}</small><strong>{{ $field==='started_at'?($client->started_at?->format('d/m/Y')??'—'):($client->$field?:'—') }}</strong></div>@endforeach @if($client->customer_kind==='dealership')<div><small>Organización</small><strong>{{ $client->dealership?->name??'Sin organización' }}</strong></div>@endif @if($client->customer_kind==='person')<div><small>Concesionario</small><strong>{{ $client->concessionaire?->name??'Sin concesionario' }}</strong></div>@endif</div></section>
+<section class="card form-card mb-6" data-concessionaire-details><h2>Ficha del {{ $client->customer_kind==='dealership'?'concesionario':'cliente' }}</h2><div class="detail-grid">@foreach($profile as $field=>$label)<div><small>{{ $label }}</small><strong>{{ in_array($field,['started_at','affiliation_date'],true)?($client->$field?->format('d/m/Y')??'—'):($client->$field?:'—') }}</strong></div>@endforeach @if($client->customer_kind==='dealership')<div><small>Organización</small><strong>{{ $client->dealership?->name??'Sin organización' }}</strong></div>@endif @if($client->customer_kind==='person')<div><small>Concesionario</small><strong>{{ $client->concessionaire?->name??'Sin concesionario' }}</strong></div>@endif</div></section>
 
 </div>
 @if(!auth()->user()->isHeadOffice()||$readOnlyPortfolio)

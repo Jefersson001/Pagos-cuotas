@@ -38,6 +38,7 @@ $allCredit=array_merge($allDates,['state'=>'credit']);
 @foreach($comparison as $key=>$item)<div data-sales-comparison="{{ $key }}"><div><h3>{{ $item['label'] }}</h3><span class="sales-overview-change">{{ $item['change_percent']===null?'Sin base anterior':($item['change_percent']==0?'Sin variación':($item['change_percent']>0?'+':'').number_format($item['change_percent'],1).'%') }}</span></div><div class="sales-overview-comparison-values"><div><span>Período elegido</span><strong>{{ $money($item['current_cents']) }}</strong></div><div><span>Período anterior</span><strong>{{ $money($item['previous_cents']) }}</strong></div></div><p>{{ $item['difference_cents']===0?'Mismo importe':($item['difference_cents']>0?'Aumento de ':'Disminución de ').$money(abs($item['difference_cents'])) }}</p></div>@endforeach
 </div>
 </section>
+<x-client-affiliations :summary="$affiliations" />
 <div class="product-summary-layout sales-overview-layout">
 <div class="product-summary-main">
 <section class="card">

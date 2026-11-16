@@ -29,12 +29,15 @@ class ClientController extends Controller
     {
         abort_unless($request->user()->isHeadOffice(), 403);
         $values = $request->validate([
+            'affiliation_from' => 'nullable|date_format:Y-m-d',
+            'affiliation_to' => ['nullable', 'date_format:Y-m-d', ...($request->filled('affiliation_from') ? ['after_or_equal:affiliation_from'] : [])],
             'q' => 'nullable|string|max:255',
             'active' => 'nullable|in:0,1',
             'account_state' => 'nullable|in:debt,overdue,credit,due_soon,received,sales',
             'concessionaire_id' => ['nullable', 'integer', Rule::exists('clients', 'id')->where('customer_kind', 'dealership')->where('dealership_id', $request->user()->dealership_id)],
         ]);
-        $query = Client::headOfficeCustomers($request->user())->with(['owner', 'concessionaire']);
+        $query = Client::headOfficeCustomers($request->user())->with(['owner', 'concessionaire'])
+            ->affiliatedBetween($values['affiliation_from'] ?? null, $values['affiliation_to'] ?? null);
         if ($request->filled('q')) {
             $term = '%'.$values['q'].'%';
             $query->where(fn (Builder $clients) => $clients->where('name', 'like', $term)->orWhere('document', 'like', $term)->orWhere('phone', 'like', $term)->orWhere('email', 'like', $term)->orWhere('city', 'like', $term));
@@ -94,6 +97,10 @@ class ClientController extends Controller
 
     public function index(Request $r, CustomerOverviewService $overview): View
     {
+        $affiliationDates = $r->validate([
+            'affiliation_from' => 'nullable|date_format:Y-m-d',
+            'affiliation_to' => ['nullable', 'date_format:Y-m-d', ...($r->filled('affiliation_from') ? ['after_or_equal:affiliation_from'] : [])],
+        ]);
         $r->validate(['q' => 'nullable|string|max:255', 'customer_kind' => 'nullable|in:person,dealership', 'business_type' => 'nullable|string|max:80', 'active' => 'nullable|in:0,1', 'account_state' => 'nullable|in:debt,overdue,credit,due_soon,received,sales', 'unassigned' => 'nullable|boolean']);
         $customerKind = $r->input('customer_kind', $r->route('customer_kind'));
         if ($r->user()->isHeadOffice()) {
@@ -101,7 +108,8 @@ class ClientController extends Controller
         } elseif (! $r->user()->isAdmin() && $r->user()->concessionaire_id) {
             $customerKind = 'person';
         }
-        $q = Client::visibleTo($r->user())->with(['owner', 'concessionaire']);
+        $q = Client::visibleTo($r->user())->with(['owner', 'concessionaire'])
+            ->affiliatedBetween($affiliationDates['affiliation_from'] ?? null, $affiliationDates['affiliation_to'] ?? null);
         if ($r->user()->isAdmin() && $r->boolean('unassigned')) {
             $q->where('customer_kind', 'person')->whereNull('concessionaire_id');
         }

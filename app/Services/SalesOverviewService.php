@@ -129,6 +129,7 @@ class SalesOverviewService
             })->filter(fn (int $amount): bool => $amount > 0);
 
             return [
+                'affiliations' => app(ClientAffiliationService::class)->summary($request, $clients),
                 'clientCount' => $clients->count(),
                 'collectionRemainingCents' => (int) $reportedAccounts->sum('remaining_cents'),
                 'aging' => $aging, 'previousStart' => $previousStart, 'previousEnd' => $previousEnd, 'comparison' => $comparison,
