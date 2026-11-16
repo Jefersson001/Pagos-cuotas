@@ -64,7 +64,7 @@ class ClientAffiliationOverviewTest extends TestCase
         foreach ([$role === 'head' ? 'head-office.overview' : 'workspace.customers', $role === 'head' ? 'head-office.sales.overview' : 'workspace.sales'] as $route) {
             $response = $this->actingAs($data[$role])->get(route($route, [
                 'dealership_id' => $data['company']->id, 'affiliation_year' => 2026,
-            ]))->assertOk()->assertSee('Clientes afiliados por mes');
+            ]))->assertOk()->assertSee($role === 'dealer' ? 'Clientes afiliados por mes' : 'Clientes y concesionarios por mes');
             $response->assertViewHas('affiliations', fn (array $summary): bool => $summary['year'] === 2026
                 && $summary['total'] === ($role === 'dealer' ? 2 : 3) && $summary['months']->count() === 12
                 && $summary['months'][0]['count'] === 2 && $summary['months'][1]['count'] === ($role === 'dealer' ? 0 : 1)

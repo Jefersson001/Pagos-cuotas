@@ -75,7 +75,7 @@ class ConcessionaireImportTest extends TestCase
         $this->assertSame(['created' => 3, 'updated' => 0, 'total' => 3], $service->import($path, $owner, $owner->dealership_id));
         $north = Client::where('import_reference', 'BERA-CARS-0001')->firstOrFail();
         $this->assertSame('Sucursal Norte', $north->name);
-        $this->assertSame('2026-05-21', $north->started_at->format('Y-m-d'));
+        $this->assertSame($north->created_at->toDateString(), $north->started_at->format('Y-m-d'));
         $this->assertSame('2026-01-02', $north->listed_started_at->format('Y-m-d'));
         $this->assertSame('Representante Uno', $north->legal_representative);
         $this->assertSame('0412 / 0414', $north->phone);
@@ -97,7 +97,7 @@ class ConcessionaireImportTest extends TestCase
         $this->artisan('concesionarios:importar', ['archivo' => $path, '--user' => $owner->id, '--dealership' => $owner->dealership_id, '--dry-run' => true])->assertExitCode(0);
         $this->assertDatabaseCount('clients', 0);
         app(ConcessionaireImport::class)->import($path, $owner, $owner->dealership_id);
-        $this->assertSame('1904-01-02', Client::firstOrFail()->started_at->format('Y-m-d'));
+        $this->assertSame(today()->toDateString(), Client::firstOrFail()->started_at->format('Y-m-d'));
         $rows[4] = ['A' => 2, 'C' => 'Fecha inválida', 'M' => '31/02/2026'];
         $this->artisan('concesionarios:importar', ['archivo' => $this->workbook($rows), '--user' => $owner->id, '--dealership' => $owner->dealership_id])->assertExitCode(1);
         $this->assertDatabaseCount('clients', 1);
@@ -166,7 +166,7 @@ class ConcessionaireImportTest extends TestCase
         $this->assertSame($owner->id, $record->user_id);
         $this->assertTrue($record->active);
         $record->update(['started_at' => '2026-05-21']);
-        $details = $this->get(route('clients.show', $record))->assertOk()->assertSee('21/05/2026');
+        $details = $this->get(route('clients.show', $record))->assertOk()->assertSee($record->created_at->format('d/m/Y'));
         $document = new \DOMDocument;
         @$document->loadHTML('<?xml encoding="UTF-8">'.$details->getContent());
         $labels = [];

@@ -33,7 +33,7 @@ class SalesOverviewService
             }
             $inMonth = fn (CarbonInterface $date): bool => $period->contains($date);
             $canFilterConcessionaires = $request->user()->isAdmin() || $request->user()->isHeadOffice();
-            $concessionaires = $canFilterConcessionaires ? Client::visibleTo($request->user())->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name', 'dealership_id']) : collect();
+            $concessionaires = $canFilterConcessionaires ? Client::visibleTo($request->user())->where('customer_kind', 'dealership')->orderBy('name')->get(['id', 'name', 'dealership_id', 'customer_kind', 'created_at']) : collect();
             if ($canFilterConcessionaires) {
                 $request->validate(['concessionaire_id' => ['nullable', 'integer', Rule::in($concessionaires->modelKeys())]]);
             }
@@ -129,7 +129,8 @@ class SalesOverviewService
             })->filter(fn (int $amount): bool => $amount > 0);
 
             return [
-                'affiliations' => app(ClientAffiliationService::class)->summary($request, $clients),
+                'affiliations' => app(ClientAffiliationService::class)->summary($request, $clients,
+                    $request->filled('concessionaire_id') ? $concessionaires->where('id', $request->integer('concessionaire_id')) : $concessionaires),
                 'clientCount' => $clients->count(),
                 'collectionRemainingCents' => (int) $reportedAccounts->sum('remaining_cents'),
                 'aging' => $aging, 'previousStart' => $previousStart, 'previousEnd' => $previousEnd, 'comparison' => $comparison,

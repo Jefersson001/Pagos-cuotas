@@ -98,6 +98,8 @@ class ClientController extends Controller
     public function index(Request $r, CustomerOverviewService $overview): View
     {
         $affiliationDates = $r->validate([
+            'started_from' => 'nullable|date_format:Y-m-d',
+            'started_to' => ['nullable', 'date_format:Y-m-d', ...($r->filled('started_from') ? ['after_or_equal:started_from'] : [])],
             'affiliation_from' => 'nullable|date_format:Y-m-d',
             'affiliation_to' => ['nullable', 'date_format:Y-m-d', ...($r->filled('affiliation_from') ? ['after_or_equal:affiliation_from'] : [])],
         ]);
@@ -109,7 +111,8 @@ class ClientController extends Controller
             $customerKind = 'person';
         }
         $q = Client::visibleTo($r->user())->with(['owner', 'concessionaire'])
-            ->affiliatedBetween($affiliationDates['affiliation_from'] ?? null, $affiliationDates['affiliation_to'] ?? null);
+            ->affiliatedBetween($affiliationDates['affiliation_from'] ?? null, $affiliationDates['affiliation_to'] ?? null)
+            ->startedBetween($affiliationDates['started_from'] ?? null, $affiliationDates['started_to'] ?? null);
         if ($r->user()->isAdmin() && $r->boolean('unassigned')) {
             $q->where('customer_kind', 'person')->whereNull('concessionaire_id');
         }
